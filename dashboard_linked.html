@@ -1,0 +1,2549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Dashboard · 分圈雷达(0–50/50–100/100–150) + Big Five三源合成</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<script src="./bf_mappings.js"></script>
+<script src="./indices.js"></script>
+
+<!-- 命名空间工具函数 -->
+<script>
+  // 获取带命名空间的缓存键名
+  function getNamespacedKey(baseKey) {
+    // 允许在 PSYS 未注入时，使用 'psys:v1' 作为默认命名空间
+    const NS = (window.PSYS && PSYS.NS) || 'psys:v1';
+    const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`) || 'null');
+    return meta ? `${baseKey}:${meta.teamId}:${meta.userId}:${meta.runId}` : baseKey;
+  }
+  
+  // 将函数挂载到全局
+  window.getNamespacedKey = getNamespacedKey;
+  
+  const NS = (k) => (typeof getNamespacedKey === 'function' ? getNamespacedKey(k) : k);
+  const getNS = (k, fallback = null) => {
+    const raw = localStorage.getItem(NS(k));
+    try { return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+  };
+  const setNS = (k, v) => localStorage.setItem(NS(k), JSON.stringify(v));
+  
+  // 显式保留字符串命名空间，用于 sessionStorage 读取
+  const NS_STR = (window.PSYS && PSYS.NS) || 'psys:v1';
+
+  // 一次性迁移旧的全局键到当前会话命名空间，避免现网用户丢数据
+  (function migrateLegacyKeysOnce(){
+    const LEGACY_KEYS = [
+      'step1_bigfive','step2_bf_env','step3_bf_env','step4_bf_env',
+      'step1_struct','step2_struct_raw','step3_struct','step4_struct',
+      'step4_scores','step4_eco_hint','pot_self_raw','pot_env'
+    ];
+    const sess = JSON.parse(sessionStorage.getItem(`${NS_STR}:currentSession`)||'null');
+    if (!sess) return;
+    const NSKey = k => `${k}:${sess.teamId}:${sess.userId}:${sess.runId}`;
+
+    LEGACY_KEYS.forEach(k=>{
+      const nsKey = NSKey(k);
+      if (localStorage.getItem(nsKey)==null && localStorage.getItem(k)!=null){
+        localStorage.setItem(nsKey, localStorage.getItem(k));
+      }
+    });
+  })();
+</script>
+<style>
+:root{--bg:#0b1020;--card:#121833;--ink:#e7ecff;--muted:#98a1c0;--line:#1c2447;--good:#4ade80;--warn:#f59f0b;--bad:#ff5c9a;--hl:#2a3b7a}
+*{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1430);color:var(--ink);font-family:'Noto Sans SC',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+.wrap{max-width:1280px;margin:22px auto 80px;padding:14px}
+.h1{font-size:26px;font-weight:700;margin:6px 0 12px}
+.grid-main{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.card{background:linear-gradient(180deg,#121833,#0f1733);border:1px solid var(--line);border-radius:14px;padding:14px}
+.card h3{margin:0 0 8px;font-size:15px}
+.canvas-wrap{position:relative;height:560px}
+.note{font-size:12px;color:#9fb1ff;margin-top:6px}
+.legend-tip{font-size:12px;color:#c8d3ff;margin-left:6px}
+.btn{padding:8px 14px;border-radius:8px;background:#6c8cff;color:#fff;margin-right:6px;text-decoration:none;border:1px solid #7a95ff;cursor:pointer}
+.tab{display:inline-block;padding:6px 10px;border:1px solid #2a3b7a;border-radius:10px;margin-right:6px;cursor:pointer}.tab.active{background:#1a244f;border-color:#5a76dd}
+.q{padding:10px;border:1px dashed #2a3b7a;border-radius:12px;background:#0c1433;margin:8px 0;scroll-margin-top:70px}
+.q.highlight{outline:2px solid #6c8cff;box-shadow:0 0 0 4px rgba(108,140,255,.25) inset}
+.bar{position:relative;height:12px;width:100%;background:#0b1230;border:1px solid #2a3b7a;border-radius:999px;overflow:hidden;margin:6px 0 4px 0}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#6c8cff,#9aaeff)}
+.bar.alt1>i{background:linear-gradient(90deg,#34d399,#10b981)}
+.value{font-size:12px;color:#b9c4ff;display:block;text-align:right;margin-bottom:4px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid #2a3b7a;font-size:11px;margin:2px 4px 2px 0;cursor:pointer;user-select:none}
+.badge .dot{width:6px;height:6px;border-radius:50%}
+.badge.good{border-color:rgba(74,222,128,.5);color:#c8ffe0}.badge.good .dot{background:#10b981}
+.badge.warn{border-color:rgba(245,158,11,.55);color:#ffe7b8}.badge.warn .dot{background:#f59e0b}
+.badge.bad{border-color:rgba(255,92,154,.55);color:#ffc9dc}.badge.bad .dot{background:#ff5c9a}
+.badge.tag{border-color:#3a4a8f;color:#cfe0ff;background:rgba(90,118,221,.12);cursor:default}
+.tips{margin-top:6px;padding-left:14px}
+.tips li{font-size:12px;color:#d3dcff;line-height:1.5}
+.tips.collapsed li.extra{display:none}
+.tip-toggle{margin-top:6px;font-size:12px;color:#a8b7ff;cursor:pointer;user-select:none}
+.disclaimer{font-size:12px;color:#a5b3ff;margin-bottom:8px}
+.smallnote{font-size:12px;color:#b7c4ff}
+
+/* 指数墙样式 */
+.indices-wall{margin-top:16px}
+.indices-wall h3{margin:0 0 12px;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.indices-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.index-card{background:linear-gradient(135deg,#0f1733,#121833);border:1px solid var(--line);border-radius:12px;padding:12px;transition:all 0.3s ease}
+.index-card:hover{border-color:#5a76dd;box-shadow:0 4px 12px rgba(90,118,221,0.15)}
+.index-card.low-confidence{opacity:0.6;border-color:#444;background:linear-gradient(135deg,#0a0f1f,#0d1220)}
+.index-card.low-confidence:hover{border-color:#666;box-shadow:0 2px 8px rgba(102,102,102,0.1)}
+.index-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.index-name{font-size:14px;font-weight:600;color:var(--ink)}
+.index-short{font-size:11px;color:var(--muted);background:rgba(90,118,221,0.1);padding:2px 6px;border-radius:4px}
+.index-value{font-size:24px;font-weight:700;margin:8px 0}
+.index-bar{height:6px;background:#0b1230;border-radius:3px;overflow:hidden;margin:6px 0}
+.index-bar-fill{height:100%;border-radius:3px;transition:width 0.5s ease}
+.index-desc{font-size:11px;color:var(--muted);line-height:1.4;margin-bottom:8px}
+.index-range{font-size:11px;padding:3px 8px;border-radius:12px;display:inline-block}
+.index-details{margin-top:8px;font-size:11px;color:#a8b7ff}
+.index-tooltip{position:relative;cursor:help}
+.index-tooltip:hover::after{content:attr(data-tooltip);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a244f;color:#e7efff;padding:6px 8px;border-radius:6px;font-size:10px;white-space:nowrap;z-index:1000;margin-bottom:4px}
+.indices-toggle{background:none;border:1px solid var(--line);color:var(--muted);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12px}
+.indices-toggle:hover{border-color:#5a76dd;color:var(--ink)}
+.indices-collapsed .indices-grid{display:none}
+
+/* 数据来源徽标样式 */
+.data-source-badge{margin-top:6px;font-size:10px;color:#8a9bff;background:rgba(138,155,255,0.1);border:1px solid rgba(138,155,255,0.2);border-radius:6px;padding:4px 6px;display:flex;align-items:center;gap:4px}
+.data-source-badge .badge-icon{font-weight:bold;color:#6c8cff}
+.data-source-badge .badge-text{line-height:1.2}
+.data-source-badge:hover{background:rgba(138,155,255,0.15);border-color:rgba(138,155,255,0.3)}
+
+/* 象限图样式 */
+.quadrant-chart{width:60px;height:60px;border:1px solid var(--line);border-radius:6px;position:relative;background:linear-gradient(45deg,#0b1230 50%,#121833 50%)}
+.quadrant-dot{width:4px;height:4px;background:#6c8cff;border-radius:50%;position:absolute;transform:translate(-50%,-50%)}
+
+/* 组件分解饼图样式 */
+.component-pie{width:50px;height:50px;border-radius:50%;background:conic-gradient(#6c8cff 0deg 120deg,#34d399 120deg 240deg,#fbbf24 240deg 360deg);position:relative}
+.component-pie::after{content:'';position:absolute;top:50%;left:50%;width:20px;height:20px;background:var(--card);border-radius:50%;transform:translate(-50%,-50%)}
+
+@media (max-width:1100px){
+  .grid-main{grid-template-columns:1fr}
+  .canvas-wrap{height:520px}
+  .indices-grid{grid-template-columns:1fr}
+}
+</style>
+  <script src="./storage.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="h1">分圈雷达（结构0–50｜生态50–100｜潜力100–150） + Big Five三源合成</div>
+  <div class="grid-main">
+    <!-- 左：一张雷达图、5 曲线（两结构/生态/两潜力） -->
+    <div>
+      <div class="card">
+        <div class="canvas-wrap"><canvas id="radarOne"></canvas></div>
+        <div class="note">
+          半径分区：<b>0–50</b>（结构），<b>50–100</b>（生态），<b>100–150</b>（潜力）。Tooltip 显示原始 0–100 分的整数与维度名称。
+          <span class="legend-tip">可点图例开关各曲线。</span>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="legend-tip" for="weightMode">权重模式：</label>
+          <select id="weightMode" class="btn" style="background:#1a244f;border-color:#5a76dd;color:#e7efff;padding:6px 10px">
+            <option value="insight">洞察模式（本质>纠偏≥环境）</option>
+            <option value="experience">体验模式（本质>环境>纠偏）</option>
+            <option value="balanced">平衡模式（本质稍高，环境≈纠偏）</option>
+          </select>
+          <span class="legend-tip" id="weightDesc"></span>
+<button class="btn" id="btnSaveScheme" style="padding:6px 10px">保存方案</button>
+</div>
+
+        <div style="margin-top:8px"><button class="btn" id="btnExport">同步到「原型对比雷达」</button> <button class="btn" id="btnStep4">返回 Hub</button><span class="legend-tip">（已自动写入，可手动再次同步）</span></div>
+      </div>
+    </div>
+
+    <!-- 右：原条形图面板（结构8/生态16/潜力8） + 熵增提示块 -->
+    <div class="card">
+      <div class="disclaimer">
+        阈值口径：高≥70，中=50–65，低≤50。含"长期情绪低落/耗竭倾向"的表述仅为状态提醒，非医学诊断。<br/>
+        环境口径：<b>环境+纠偏</b>（标签×0.65 + 纠偏×0.35），来源于 Step2 与 Step3 融合。<br/>
+        <b>Big Five 三源合成：</b>Step1自评 + Step2+Step3环境 + Step4基础评分，根据权重模式智能融合。
+      </div>
+
+      <!-- Big Five 合成结果显示 -->
+      <div id="bigFiveBox" class="q" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b>Big Five 三源合成结果</b>
+          <span id="bfSynthesisMode" class="badge tag"><i class="dot"></i><span>—</span></span>
+        </div>
+        <div id="bigFiveDisplay" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px">
+          <div class="bf-dimension">
+            <div class="smallnote">开放性</div>
+            <div class="bar"><i id="bf-o-bar" style="width:50%"></i></div>
+            <div class="value" id="bf-o-value">50</div>
+          </div>
+          <div class="bf-dimension">
+            <div class="smallnote">尽责性</div>
+            <div class="bar"><i id="bf-c-bar" style="width:50%"></i></div>
+            <div class="value" id="bf-c-value">50</div>
+          </div>
+          <div class="bf-dimension">
+            <div class="smallnote">外向性</div>
+            <div class="bar"><i id="bf-e-bar" style="width:50%"></i></div>
+            <div class="value" id="bf-e-value">50</div>
+          </div>
+          <div class="bf-dimension">
+            <div class="smallnote">宜人性</div>
+            <div class="bar"><i id="bf-a-bar" style="width:50%"></i></div>
+            <div class="value" id="bf-a-value">50</div>
+          </div>
+          <div class="bf-dimension">
+            <div class="smallnote">神经质</div>
+            <div class="bar"><i id="bf-n-bar" style="width:50%"></i></div>
+            <div class="value" id="bf-n-value">50</div>
+          </div>
+        </div>
+        <div class="smallnote" id="bfDataSources">数据来源：Step1(—) + Step2+3(—) + Step4(—)</div>
+      </div>
+
+      <!-- 熵增提示（展示，不参与计算更改） -->
+      <div id="entropyBox" class="q" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <b>熵增（噪声）</b>
+          <span id="entropyBadge" class="badge tag"><i class="dot"></i><span>—</span></span>
+        </div>
+        <div class="smallnote">说明：由生态上下文估算，仅用于提示“环境复杂度/系统噪声”。</div>
+        <ul id="entropyTips" class="tips"></ul>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <span class="tab active" id="tab-struct">结构 8（徽章+规则）</span>
+        <span class="tab" id="tab-eco">生态 16（由徽章推导）</span>
+        <span class="tab" id="tab-pot">潜力 8</span>
+      </div>
+      <div id="panel-struct"><div id="structBadges"></div><div id="structList"></div></div>
+      <div id="panel-eco" style="display:none"><div id="ecoBadges"></div><div id="ecoList"></div></div>
+      <div id="panel-pot" style="display:none"><div id="potBadges"></div><div id="potList"></div></div>
+    </div>
+  </div>
+
+  <!-- 指数墙 -->
+  <div class="indices-wall" id="indicesWall">
+    <div class="card">
+      <h3>
+        心理指数分析
+        <button class="indices-toggle" id="indicesToggle">收起 ▲</button>
+      </h3>
+      <div class="indices-grid" id="indicesGrid">
+        <!-- 指数卡片将通过JavaScript动态生成 -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========= Big Five 数据加载与合成逻辑 ========= */
+function loadBigFiveData() {
+  // 修复Big Five三源合成：每个成员独立读取，解决所有人结果一样的问题
+  const meta = JSON.parse(sessionStorage.getItem(`${NS_STR}:currentSession`) || 'null');
+  
+  // 优先从PSYS会话系统读取当前用户的数据
+  if (meta && meta.userId && window.PSYS && typeof PSYS.getLastSessionMetaForUser === 'function') {
+    try {
+      const userMeta = PSYS.getLastSessionMetaForUser(meta.teamId, meta.userId);
+      if (userMeta) {
+        const sess = PSYS.getSession(userMeta.teamId, userMeta.userId, userMeta.runId);
+        if (sess) {
+          return {
+            step1_bf:     sess?.step1?.bigfive     ?? null,
+            step2_bf_env: sess?.step2?.bf_env      ?? null,
+            step3_bf_env: sess?.step3?.bf_env      ?? null,
+            step4_bf_env: sess?.step4?.bf_env      ?? null,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load user-specific session data:', e);
+    }
+  }
+  
+  // 回落到命名空间localStorage
+  return {
+    step1_bf:     getNS('step1_bigfive', null),
+    step2_bf_env: getNS('step2_bf_env', null),
+    step3_bf_env: getNS('step3_bf_env', null),
+    step4_bf_env: getNS('step4_bf_env', null),
+  };
+}
+
+function synthesizeBigFive(bfData, weightMode = 'balanced') {
+  const { step1_bf, step2_bf_env, step3_bf_env, step4_bf_env } = bfData;
+  
+  // 权重配置
+  const WEIGHT_MODES = {
+    insight: { step1: 0.2, step2_3: 0.3, step4: 0.5 },    // 洞察模式：重视基础评分
+    experience: { step1: 0.3, step2_3: 0.5, step4: 0.2 }, // 体验模式：重视环境反馈
+    balanced: { step1: 0.25, step2_3: 0.4, step4: 0.35 }  // 平衡模式：均衡权重
+  };
+  
+  const weights = WEIGHT_MODES[weightMode] || WEIGHT_MODES.balanced;
+  
+  // 合成Step2+Step3环境数据
+  let step2_3_combined = null;
+  if (step2_bf_env && step3_bf_env) {
+    step2_3_combined = step2_bf_env.map((v2, i) => {
+      const v3 = step3_bf_env[i] || 50;
+      return (v2 * 0.6 + v3 * 0.4); // Step2权重稍高
+    });
+  } else if (step2_bf_env) {
+    step2_3_combined = step2_bf_env.slice();
+  } else if (step3_bf_env) {
+    step2_3_combined = step3_bf_env.slice();
+  }
+  
+  // 三源合成
+  const result = [0, 0, 0, 0, 0]; // [O, C, E, A, N]
+  let totalWeight = 0;
+  
+  if (step1_bf && Array.isArray(step1_bf) && step1_bf.length >= 5) {
+    for (let i = 0; i < 5; i++) {
+      result[i] += (step1_bf[i] || 50) * weights.step1;
+    }
+    totalWeight += weights.step1;
+  }
+  
+  if (step2_3_combined && Array.isArray(step2_3_combined) && step2_3_combined.length >= 5) {
+    for (let i = 0; i < 5; i++) {
+      result[i] += (step2_3_combined[i] || 50) * weights.step2_3;
+    }
+    totalWeight += weights.step2_3;
+  }
+  
+  if (step4_bf_env && Array.isArray(step4_bf_env) && step4_bf_env.length >= 5) {
+    for (let i = 0; i < 5; i++) {
+      result[i] += (step4_bf_env[i] || 50) * weights.step4;
+    }
+    totalWeight += weights.step4;
+  }
+  
+  // 归一化
+  if (totalWeight > 0) {
+    for (let i = 0; i < 5; i++) {
+      result[i] = Math.max(0, Math.min(100, result[i] / totalWeight));
+    }
+  } else {
+    // 如果没有任何数据，使用默认值
+    result.fill(50);
+  }
+  
+  return result;
+}
+
+/* ========= 向量体检函数 ========= */
+function assertVec(name, v, len, min=0, max=100){
+  if(!Array.isArray(v) || v.length!==len) throw new Error(`${name} 长度应为 ${len}，实际 ${v&&v.length}`);
+  for(let i=0;i<v.length;i++){
+    const x = Number(v[i]);
+    if(!isFinite(x)) throw new Error(`${name}[${i}] 非数值: `+v[i]);
+    if(x<min || x>max) throw new Error(`${name}[${i}] 越界: ${x}（应在 ${min}~${max}）`);
+  }
+}
+
+/* ========= 基础标签 ========= */
+const ECO16 = [
+  "信任速度","协作质量","关系韧性","影响半径","目标推进力","节奏管理",
+  "应变效率","落地闭环度","洞察敏锐度","表达条理度","信息整合度","改进驱动力",
+  "能量外放","冲突风格","环境贴合度","幸福感基础"
+];
+const ECO_INDEX = {}; ECO16.forEach((n,i)=>ECO_INDEX[n]=i);
+const STRUCT8_FULL = ["镜面（觉察）","筋骨（闭环力）","水流（灵活）","火焰（能量）","指南针（方向）","盾牌（情绪稳定）","桥梁（连接）","岩石（毅力）"];
+const STRUCT8 = STRUCT8_FULL.map(s=>s.split('（')[0]);
+const POT8 = ["创新潜力","领导潜力","艺术潜力","学习潜力","社交潜力","创业潜力","科研潜力","幸福潜力"];
+
+/* ========= 生态领域路由 + 新增徽章文案（不改计算，仅展示） ========= */
+const ECO_META = {
+  "信任速度":{
+    alias:"信任启动度",
+    domains:["事业","家庭","生活"],
+    why:"信任是协作入口，决定推进摩擦",
+    high:[
+      "快速破冰：用“小承诺—小兑现”建立信任循环",
+      "保持真诚而非表演，信任可持续",
+      "把握窗口期，先给对方可验证的信息"
+    ],
+    mid:[
+      "信任需要时间：从小圈子先建立口碑",
+      "增加透明度与回应速度，减少他人不确定",
+      "用‘预期-进展-结果’三段式沟通"
+    ],
+    low:[
+      "主动自我揭示，降低他人猜疑门槛",
+      "先做一次可见的小帮助，触发信任启动",
+      "避免失联，哪怕简短回应也比沉默好"
+    ]
+  },
+  "协作质量":{
+    alias:"协作互惠",
+    domains:["事业","家庭"],
+    why:"分工与闭环决定交付确定性",
+    high:[
+      "你的信誉就是资产：多做进展可视化",
+      "提前暴露风险，团队会更信任你",
+      "给到‘可执行’的下一步，而非信息堆积"
+    ],
+    mid:[
+      "闭环不足：设置固定回报点（周报/站会）",
+      "明确边界与责任，降低扯皮概率",
+      "遇到依赖关系，先锁定接口人和时点"
+    ],
+    low:[
+      "从一个小任务做到可预期，修复团队印象",
+      "不要口头承诺大事，先小步交付建立节奏",
+      "用清单化+时限化替代笼统表述"
+    ]
+  },
+  "关系韧性":{
+    alias:"修复弹性",
+    domains:["家庭","伴侣","事业"],
+    why:"冲突后的恢复速度决定长期稳定",
+    high:[
+      "冲突后能快速修复：主动复盘，而非翻旧账",
+      "有界限的体谅，能让关系更稳",
+      "把‘修复’当能力训练，而非偶发行为"
+    ],
+    mid:[
+      "情绪恢复在中段：学会说“没事了，我们继续”",
+      "限定冷处理时长，别无限期拖延",
+      "用‘事实-感受-请求’三步法降低指责感"
+    ],
+    low:[
+      "避免长期冷战：先修复再求对错",
+      "用‘小道歉+小补偿’快速降级",
+      "需要时请第三方做“关系调解人”"
+    ]
+  },
+  "影响半径":{
+    alias:"外溢影响力",
+    domains:["事业","其他"],
+    why:"机会获取与资源动员的放大器",
+    high:[
+      "别只扩散也要沉淀：把观点做成素材库",
+      "为他人做‘可转用素材’，影响会更深",
+      "适度稀缺，避免信息疲劳"
+    ],
+    mid:[
+      "聚焦小圈层，逐步放大外溢面",
+      "选择自己的“主场”渠道，坚持输出",
+      "用数据/案例增强说服力"
+    ],
+    low:[
+      "先在安全场练习表达，再逐步公开",
+      "小范围试点你的想法，收集正反馈",
+      "建立3个固定触达点（同事/群/平台）"
+    ]
+  },
+  "目标推进力":{
+    alias:"推进引擎",
+    domains:["事业","学习","家庭"],
+    why:"方向—拆解—执行的主链路",
+    high:[
+      "注意别碾压队友：留出协商空间",
+      "为他人准备‘上手入口’降低阻力",
+      "设置“完成可见”以增强队伍成就感"
+    ],
+    mid:[
+      "容易中断：把目标切成 1–2 小步",
+      "为自己设定每日最低动作量",
+      "用番茄钟/看板拉回节奏"
+    ],
+    low:[
+      "从‘最小下一步’开始，先点燃动能",
+      "给自己一份小奖励形成正循环",
+      "找一个监督搭子，降低惰性"
+    ]
+  },
+  "节奏管理":{
+    alias:"节律与能量",
+    domains:["生活","事业","家庭"],
+    why:"可持续产出与情绪稳定的地基",
+    high:[
+      "守住睡眠与运动，两项就是护城河",
+      "根据生理高峰布置关键任务",
+      "在周期低谷安排低强度事项"
+    ],
+    mid:[
+      "用小仪式感把节奏拉回来（早/晚例行）",
+      "建立‘停-看-调’的每周校准",
+      "减少多线程，给大块时间做深度工作"
+    ],
+    low:[
+      "先修复睡眠，再谈效率",
+      "不要透支，留一点‘余白’给恢复",
+      "每天固定 15 分钟保底规律"
+    ]
+  },
+  "应变效率":{
+    alias:"变中取稳",
+    domains:["事业","生活","其他"],
+    why:"低熵系统核心能力",
+    high:[
+      "敏捷试错要配合留痕，避免返工",
+      "设定‘回滚点’，敢改也能稳",
+      "复盘一次成功的快速调整经验"
+    ],
+    mid:[
+      "常慢半拍：做情景预演与清单化响应",
+      "建立 72 小时内的短周期复评",
+      "别纠结完美，先把关键路径打通"
+    ],
+    low:[
+      "从一次小调整开始训练适应肌肉",
+      "与高应变伙伴结对，借他人节奏带动",
+      "把‘不确定’拆成明细问题逐个击破"
+    ]
+  },
+  "落地闭环度":{
+    alias:"执行闭环",
+    domains:["事业","家庭"],
+    why:"‘最后一公里’决定价值兑现",
+    high:[
+      "你是完成型选手：别忘了展示成果",
+      "为他人留下一键复用的操作痕迹",
+      "把经验沉淀到 SOP/模板"
+    ],
+    mid:[
+      "设置提醒与检查点，防止半途丢件",
+      "任务分三段交付：版本-验收-上线",
+      "明确 Done 的定义，避免标准漂移"
+    ],
+    low:[
+      "先做‘小闭环’任务，体验完成感",
+      "减少在制品（WIP），聚焦一件事完成",
+      "给收尾动作设硬性时限"
+    ]
+  },
+  "洞察敏锐度":{
+    alias:"前瞻与识别",
+    domains:["事业","孩子","生活"],
+    why:"变量提纯，减少错误探索",
+    high:[
+      "分享不只讲结论，也讲推理过程",
+      "用对比样本验证你的直觉",
+      "记录异动信号，形成早预警机制"
+    ],
+    mid:[
+      "多问一句‘还有别的解释吗’",
+      "与不同背景的人讨论获得校准",
+      "建立自己的信号清单（领先指标）"
+    ],
+    low:[
+      "通过‘影随访谈’借别人的眼睛看世界",
+      "做小样本试探，积累感知经验",
+      "定期回顾成功/失误的前兆线索"
+    ]
+  },
+  "表达条理度":{
+    alias:"结构化表达",
+    domains:["事业","孩子","家庭"],
+    why:"让他人能执行，而非只‘听懂’",
+    high:[
+      "控制信息密度：先结论再三点支撑",
+      "面向执行者说‘动作与时点’",
+      "准备 FAQ，减少反复解释"
+    ],
+    mid:[
+      "提前列3句提纲，现场按提纲讲",
+      "用图表替代口头堆叠",
+      "复述对方需求，确保同频"
+    ],
+    low:[
+      "先说重点，再补背景与细节",
+      "限制每段话 30 秒内说清动作",
+      "用例子对齐抽象表述"
+    ]
+  },
+  "信息整合度":{
+    alias:"整合与对齐",
+    domains:["事业","其他"],
+    why:"跨源对齐减少试错成本",
+    high:[
+      "你是知识枢纽：定期整理为共享资产",
+      "标注来源与时效，避免过期引用",
+      "把冲突信息并列展示，帮助判断"
+    ],
+    mid:[
+      "用思维导图搭框架，补全缺口",
+      "区分‘原始事实/解释/猜测’",
+      "建立资料索引，降低检索成本"
+    ],
+    low:[
+      "练习‘一句话总结’再展开",
+      "为每个信息标一个‘目的’标签",
+      "做一页摘要而不是十页摘录"
+    ]
+  },
+  "改进驱动力":{
+    alias:"持续微优化",
+    domains:["事业","生活"],
+    why:"复利来自持续微改进",
+    high:[
+      "维持小步快跑，避免大改带来波动",
+      "把改进‘产品化’，让他人也能复用",
+      "每周保留 1 小时做改进回顾"
+    ],
+    mid:[
+      "建立‘留痕’机制，防半途而废",
+      "按 1% 原则：每天只改进一点点",
+      "优先优化瓶颈节点，收益更高"
+    ],
+    low:[
+      "从一项重复动作开始做小优化",
+      "把痛点写下来，排个先后次序",
+      "拉同伴一起做改进打卡"
+    ]
+  },
+  "能量外放":{
+    alias:"能量外显度",
+    domains:["事业","其他"],
+    why:"现场动员与号召的放大器",
+    high:[
+      "收放自如，避免自我消耗过快",
+      "给团队留出发光空间，形成共振",
+      "把能量化成“具体行动口号”"
+    ],
+    mid:[
+      "找到你的触发场景（人/地/事）",
+      "用音乐/场景切换快速充电",
+      "把输出安排在状态峰值时段"
+    ],
+    low:[
+      "先充电再带动别人：睡眠/运动/营养",
+      "不硬撑：把任务拆给更有能量的人",
+      "从小场景表达，逐步热身"
+    ]
+  },
+  "冲突风格":{
+    alias:"调和与边界",
+    domains:["家庭","事业","孩子"],
+    why:"降级速度决定关系成本",
+    high:[
+      "亮明立场也要注意方式与场合",
+      "用‘我感受’替代‘你问题’",
+      "结尾给出可行下一步而不是胜负"
+    ],
+    mid:[
+      "温和但易被忽视：学会清晰边界",
+      "提前设‘不可触碰’清单供团队知晓",
+      "把分歧拉到白纸上讨论而非人身化"
+    ],
+    low:[
+      "练习小规模表达，别长期回避",
+      "遇到强冲突先求降级而非定输赢",
+      "需要时请第三方主持讨论"
+    ]
+  },
+  "环境贴合度":{
+    alias:"匹配与选择",
+    domains:["事业","生活"],
+    why:"匹配度直接影响产出/幸福",
+    high:[
+      "继续深耕，复利会更明显",
+      "争取更多‘在位优势’的场景",
+      "把不匹配的工作做外包/移交"
+    ],
+    mid:[
+      "先微调自己的工作方式再考虑换环境",
+      "和上级对齐期待，减少错位",
+      "寻找可匹配的子领域切入"
+    ],
+    low:[
+      "长期消耗需警惕：考虑换土壤",
+      "在可控范围内先调岗/调项目",
+      "避免把消耗当常态，保留试错空间"
+    ]
+  },
+  "幸福感基础":{
+    alias:"幸福基线",
+    domains:["生活","家庭","孩子","事业"],
+    why:"地板分决定上限",
+    high:[
+      "让幸福反哺效率：安排高质量陪伴",
+      "表达感恩能提升氛围与韧性",
+      "用‘周末复原计划’稳固基线"
+    ],
+    mid:[
+      "波动较大：记录每日三件小确幸",
+      "减少无效内耗（比拼/比较/刷屏）",
+      "建立心理的‘安全角落’仪式"
+    ],
+    low:[
+      "优先修复睡眠与关系，别忽视身心信号",
+      "必要时寻求专业支持",
+      "从‘可控的一小时’开始重建秩序"
+    ]
+  }
+};
+
+/* ========= 锚位（结构/潜力8 映射到 16 坐标） ========= */
+const STRUCT_ANCHORS = [8,7,6,12,4,15,1,0];
+const POT_ANCHORS    = STRUCT_ANCHORS.slice();
+
+/* ========= 读取 step1/2/3 + 融合（环境+纠偏） ========= */
+function readArr(key, n=null){ 
+  try{ 
+    const v = getNS(key, null); 
+    if (Array.isArray(v) && (n==null || v.length===n)) return v; 
+  }catch(e){} 
+  return null; 
+}
+function sample(n,seed){ let x=seed, arr=[]; for(let i=0;i<n;i++){ x=(x*9301+49297)%233280; arr.push(Math.round((x/233280)*100)); } return arr; }
+function sampleWithUserSeed(n, baseSeed) {
+  // 使用用户特定的种子，避免所有用户得到相同的回退数据
+  const meta = JSON.parse(sessionStorage.getItem(`${(window.PSYS && PSYS.NS) || 'psys:v1'}:currentSession`) || 'null');
+  let userSeed = baseSeed;
+  if (meta && meta.userId) {
+    // 基于用户ID生成种子
+    let hash = 0;
+    for (let i = 0; i < meta.userId.length; i++) {
+      hash = ((hash << 5) - hash + meta.userId.charCodeAt(i)) & 0xffffffff;
+    }
+    userSeed = Math.abs(hash) % 100000 + baseSeed;
+  }
+  return sample(n, userSeed);
+}
+function clamp01(x){ return Math.max(0,Math.min(100,Number(x)||0)); }
+const alpha = 0.65; // 环境(标签) : 纠偏(80题) = 65 : 35
+
+// 结构
+const s_self = readArr('step1_struct',8) || sampleWithUserSeed(8,11);
+const s2_raw = readArr('step2_struct_raw',8) || null;
+const s3_fix = readArr('step3_struct',8) || null;
+const s_tag = s2_raw ? s2_raw.map(v=>clamp01(v)) : null;
+const s_env = (s_tag||s3_fix) ? (STRUCT8.map((_,i)=> {
+  const a=s_tag? s_tag[i]:null, b=s3_fix? s3_fix[i]:null;
+  if(a!=null && b!=null) return Math.round(alpha*a + (1-alpha)*b);
+  return Math.round(a!=null? a : (b!=null? b : s_self[i]));
+})) : s_self.slice();
+
+// 潜力
+const pot_self = readArr('pot_self',8) || sampleWithUserSeed(8,201);
+const pot2_raw = readArr('pot2_raw',8) || null;
+const pot3_fix = readArr('pot3_fix',8) || null;
+const pot_env_base = readArr('pot_env',8);
+const pot_env = (pot2_raw||pot3_fix) ? POT8.map((_,i)=>{
+  const a = pot2_raw? clamp01(pot2_raw[i]):null, b=pot3_fix? clamp01(pot3_fix[i]):null;
+  if(a!=null && b!=null) return Math.round(alpha*a + (1-alpha)*b);
+  return Math.round(a!=null? a : (b!=null? b : (pot_env_base? pot_env_base[i]:50)));
+}) : (pot_env_base || sampleWithUserSeed(8,333));
+
+/* ========= 生态推导：结构→徽章→生态（保留你的原逻辑） ========= */
+function ecology16ApproxFromStruct(S){
+  const v=i=>S[i]||50;
+  return [
+    (v(7)+v(6))/2, (v(6)+v(3)+v(4))/3, (v(5)+v(7))/2, (v(5)+v(6)+v(3))/3,
+    (v(3)+v(4)+v(1))/3, (v(1)+v(7)+v(4))/3, (v(2)+v(6))/2, (v(1)+v(3))/2,
+    (v(0)+v(2))/2, (v(2)+v(3))/2, (v(0)+v(1)+v(2))/3, (v(2)+v(6))/2,
+    (v(3)+v(5))/2, (v(5)+v(1)+v(2))/3, (v(6)+v(7)+v(1))/3, (v(4)+v(1)+v(0))/3
+  ].map(x=>Math.round(clamp01(x)));
+}
+function entropyFromE16(E16){
+  const tmp = (E16 && E16.length===16) ? E16 : ecology16ApproxFromStruct(s_env);
+  const L = tmp[7]||50, J = tmp[5]||50, F = tmp[14]||50;
+  return Math.max(0, Math.min(100, Math.round(100 - (0.5*L + 0.3*J + 0.2*F))));
+}
+const ECO16_TO_AXIS = {"信任速度":7,"协作质量":6,"关系韧性":5,"影响半径":6,"目标推进力":3,"节奏管理":1,"应变效率":2,"落地闭环度":1,"洞察敏锐度":0,"表达条理度":2,"信息整合度":0,"改进驱动力":2,"能量外放":3,"冲突风格":5,"环境贴合度":6,"幸福感基础":4};
+const RULE2ECO = {
+  "强号召": {"能量外放":+10,"协作质量":+6,"影响半径":+6},
+  "高能失控": {"冲突风格":+10,"协作质量":-8},
+  "极化领导": {"协作质量":-10,"关系韧性":-6},
+  "高能但能软着陆": {"协作质量":+6,"关系韧性":+6},
+  "号召+凝聚": {"能量外放":+10,"关系韧性":+8,"协作质量":+6},
+  "冷硬推进": {"协作质量":-8,"关系韧性":-8,"冲突风格":+8},
+  "强势但可控": {"能量外放":+6,"冲突风格":+4},
+  "敏捷有边": {"应变效率":+10,"落地闭环度":+4},
+  "快变但返工风险": {"应变效率":+6,"落地闭环度":-8},
+  "刚性维稳": {"应变效率":-8,"落地闭环度":+4,"节奏管理":+4},
+  "稳定高效": {"落地闭环度":+10,"节奏管理":+6},
+  "稳中求进": {"节奏管理":+6,"落地闭环度":+4},
+  "改动可承受": {"关系韧性":+6,"应变效率":+4},
+  "清晰拍板": {"目标推进力":+10,"信息整合度":+6},
+  "分析多但锚定弱": {"目标推进力":-8,"节奏管理":-4},
+  "清晰但起伏大": {"目标推进力":+4,"幸福感基础":-6},
+  "看得清但目标摇摆": {"目标推进力":-8},
+  "清晰定向": {"目标推进力":+10,"环境贴合度":+6},
+  "坚定且可协同": {"协作质量":+8,"目标推进力":+6},
+  "善意协调但边界弹性增": {"协作质量":+6,"环境贴合度":+4},
+  "坚定但强硬": {"协作质量":-8,"冲突风格":+6},
+  "创变执行": {"改进驱动力":+10,"应变效率":+8},
+  "创意多但落地难": {"改进驱动力":+4,"落地闭环度":-10},
+  "弹性改进": {"改进驱动力":+8,"应变效率":+6},
+  "思路在、势能不足": {"能量外放":-8,"目标推进力":-4},
+  "高连续性": {"节奏管理":+10,"落地闭环度":+8},
+  "连续性略降但韧性提升": {"关系韧性":+6,"应变效率":+4},
+  "规则在但情绪打断": {"节奏管理":-8,"关系韧性":-6},
+  "稳定可靠": {"节奏管理":+8,"落地闭环度":+6},
+  "一致对外": {"协作质量":+8,"关系韧性":+8},
+  "坚定有边界但协作摩擦": {"协作质量":-8,"冲突风格":+6},
+  "高冷静": {"冲突风格":-8,"幸福感基础":+6},
+  "冷静转强势推进": {"目标推进力":+6,"冲突风格":+6},
+  "冷静变“压抑”感": {"幸福感基础":-8,"节奏管理":-4}
+};
+function ecology16FromBadges(S8,E16_context){
+  let base = ecology16ApproxFromStruct(S8);
+  STRUCT8.forEach((ax,axIdx)=>{
+    const v=S8[axIdx]||50;
+    const mod = v>=70?+8:(v<=50?-8:0);
+    ECO16.forEach((ecoName, ecoIdx)=>{
+      if(ECO16_TO_AXIS[ecoName]===axIdx){ base[ecoIdx] = clamp01(base[ecoIdx] + mod); }
+    });
+  });
+  const rulesPerAxis = comboRulesByAxis(S8, E16_context);
+  const allTexts = new Set(); rulesPerAxis.forEach(arr=>arr.forEach(t=>allTexts.add(t)));
+  allTexts.forEach(text=>{
+    const m = RULE2ECO[text]; if(!m) return;
+    Object.keys(m).forEach(ecoName=>{
+      const idx = ECO_INDEX[ecoName]; if(idx!=null){ base[idx] = clamp01(base[idx] + m[ecoName]); }
+    });
+  });
+  const H = entropyFromE16(E16_context);
+  const penalty = Math.round((H-50)/5);
+  ["节奏管理","落地闭环度","协作质量","应变效率","信息整合度","目标推进力"].forEach(name=>{
+    const i = ECO_INDEX[name]; base[i] = clamp01(base[i] - penalty);
+  });
+  base[ECO_INDEX["冲突风格"]] = clamp01(base[ECO_INDEX["冲突风格"]] + penalty);
+  return base.map(x=>Math.round(x));
+}
+
+/* ========= 组合规则（原样） + 结构徽章文案（原样） ========= */
+function comboRulesByAxis(S8,E16){
+  const [镜面,筋骨,水流,火焰,指南针,盾牌,桥梁,岩石] = S8;
+  const 熵增 = (()=>{
+    const tmp = ecology16ApproxFromStruct(S8);
+    const L = tmp[7]||50, J = tmp[5]||50, F = tmp[14]||50;
+    return Math.max(0, Math.min(100, Math.round(100 - (0.5*L + 0.3*J + 0.2*F))));
+  })();
+  const out = Array(8).fill(0).map(()=>[]);
+  const push=(axes,text)=>{axes.forEach(i=>{if(!out[i].includes(text)) out[i].push(text);});};
+  const GE=(v,t)=>v>=t, LE=(v,t)=>v<=t, BT=(v,a,b)=>v>=a&&v<=b;
+
+  if(GE(岩石,70)&&GE(熵增,70)&&LE(水流,50)) push([7,2], "硬扛但恢复慢");
+  if(GE(岩石,70)&&GE(熵增,70)&&BT(水流,50,65)) push([7,2], "硬扛并能转圜，恢复一般（高熵下能量消耗大）");
+  if(GE(岩石,70)&&GE(熵增,70)&&GE(水流,66)) push([7,2], "硬扛且具韧性，恢复较快，但长期有耗竭/低落倾向");
+  if(GE(岩石,70)&&LE(熵增,40)&&LE(水流,50)) push([7,2], "持久稳推");
+  if(GE(岩石,70)&&LE(熵增,40)&&GE(水流,66)) push([7,2], "持久且敏捷");
+  if(GE(岩石,70)&&GE(水流,66)&&LE(熵增,50)) push([7,2], "遇变不崩");
+  if(GE(岩石,70)&&GE(水流,66)&&GE(熵增,70)) push([7,2], "顶得住但返工变多");
+
+  if(GE(火焰,72)&&LE(盾牌,50)&&LE(桥梁,50)) push([3,5,6], "反应性攻击");
+  if(GE(火焰,72)&&GE(盾牌,60)&&GE(桥梁,65)) push([3,5,6], "强号召");
+  if(GE(火焰,72)&&GE(盾牌,60)&&LE(桥梁,50)) push([3,6], "极化领导");
+  if(GE(火焰,72)&&LE(盾牌,50)&&GE(桥梁,65)) push([3,5,6], "高能但能软着陆");
+  if(GE(火焰,72)&&LE(盾牌,50)) push([3,5], "高能失控");
+  if(GE(火焰,72)&&GE(盾牌,60)) push([3,5], "高能但不失控");
+
+  if(GE(筋骨,70)&&GE(水流,66)&&LE(熵增,50)) push([1,2], "敏捷有边");
+  if(GE(筋骨,70)&&GE(水流,66)&&GE(熵增,70)) push([1,2], "快变但返工风险");
+  if(GE(筋骨,70)&&LE(水流,50)&&GE(熵增,70)) push([1,2], "刚性维稳");
+  if(GE(筋骨,70)&&LE(水流,50)&&LE(熵增,50)) push([1,2], "稳定高效");
+  if(GE(筋骨,70)&&BT(水流,50,65)) push([1,2], "稳中求进");
+  if(GE(筋骨,70)&&GE(水流,66)&&LE(熵增,50)) push([1,2], "改动可承受");
+
+  if(GE(镜面,72)&&GE(指南针,65)&&GE(盾牌,60)) push([0,4,5], "清晰拍板");
+  if(GE(镜面,72)&&LE(指南针,55)&&GE(盾牌,60)) push([0,4], "分析多但锚定弱");
+  if(GE(镜面,72)&&GE(指南针,65)&&LE(盾牌,55)) push([0,5], "清晰但起伏大");
+  if(GE(镜面,72)&&LE(指南针,55)) push([0,4], "看得清但目标摇摆");
+  if(GE(镜面,72)&&GE(指南针,65)) push([0,4], "清晰定向");
+
+  if(GE(指南针,70)&&GE(桥梁,70)&&LE(水流,50)) push([4,6,2], "坚定且可协同");
+  if(GE(指南针,70)&&GE(桥梁,70)&&GE(水流,66)) push([4,6,2], "善意协调但边界弹性增");
+  if(GE(指南针,70)&&LE(桥梁,50)&&LE(水流,50)) push([4,6,2], "坚定但强硬");
+  if(GE(指南针,70)&&GE(桥梁,70)) push([4,6], "坚定且易协同");
+
+  if(GE(水流,70)&&GE(火焰,66)&&GE(筋骨,70)) push([2,3,1], "创变执行");
+  if(GE(水流,70)&&LE(筋骨,55)) push([2,1], "创意多但落地难");
+  if(GE(水流,70)&&BT(筋骨,50,65)&&BT(火焰,50,65)) push([2,1,3], "弹性改进");
+  if(GE(水流,70)&&LE(火焰,55)) push([2,3], "思路在、势能不足");
+  if(BT(筋骨,50,65)&&BT(火焰,50,65)&&LE(水流,50)) push([1,3,2], "稳中求进");
+
+  if(GE(筋骨,70)&&GE(盾牌,70)&&LE(水流,50)) push([1,5,2], "高连续性");
+  if(GE(筋骨,70)&&GE(盾牌,70)&&GE(水流,66)) push([1,5,2], "连续性略降但韧性提升");
+  if(GE(筋骨,70)&&LE(盾牌,55)&&LE(水流,50)) push([1,5,2], "规则在但情绪打断");
+  if(GE(筋骨,70)&&GE(盾牌,70)) push([1,5], "稳定可靠");
+
+  if(GE(桥梁,70)&&LE(熵增,50)&&GE(火焰,66)) push([6,3], "号召+凝聚");
+  if(GE(桥梁,70)&&GE(熵增,70)&&GE(火焰,66)) push([6,3], "动员强但协调成本飙升");
+  if(LE(桥梁,50)&&GE(熵增,70)&&GE(火焰,66)) push([6,3], "冷硬推进");
+  if(LE(桥梁,50)&&LE(熵增,50)&&GE(火焰,66)) push([6,3], "强势但可控");
+
+  if(GE(指南针,70)&&GE(岩石,70)&&LE(桥梁,50)) push([4,7,6], "坚定有边界但协作摩擦");
+  if(GE(指南针,70)&&GE(岩石,70)&&GE(桥梁,70)) push([4,7,6], "一致对外");
+  if(GE(指南针,70)&&LE(岩石,55)) push([4,7], "原则仍在但执行弹性增");
+
+  if(GE(盾牌,75)&&LE(火焰,55)&&LE(熵增,50)) push([5,3], "高冷静");
+  if(GE(盾牌,75)&&GE(火焰,72)) push([5,3], "冷静转强势推进");
+  if(GE(盾牌,75)&&GE(熵增,70)) push([5], "冷静变“压抑”感");
+  return out;
+}
+
+/* ========= 结构徽章文案（原表） ========= */
+const BAND_TEXT = {
+  "岩石":{
+    high:[
+      "硬扛但恢复慢（熵增≥70 & 水流≤50）",
+      "硬扛并能转圜，恢复一般（熵增≥70 & 水流=50–65）",
+      "硬扛且具韧性，恢复较快，但长期有耗竭/低落倾向（熵增≥70 & 水流≥66）",
+      "持久稳推（熵增≤40 & 水流≤50）",
+      "持久且敏捷（熵增≤40 & 水流≥66）",
+      "遇变不崩（水流≥66 & 熵增≤50）",
+      "顶得住但返工变多（水流≥66 & 熵增≥70）",
+      "坚定有边界但协作摩擦（与指南针≥70 & 桥梁≤50）",
+      "一致对外（桥梁≥70）"
+    ],
+    mid:["抗压中性，易受噪声或协作环境影响，表现可上可下"],
+    low:["原则仍在但执行弹性增（岩石≤55，指南针≥70 & 桥梁≤50）"]
+  },
+  "水流":{
+    high:[
+      "硬扛且具韧性，恢复较快，但长期有耗竭/低落倾向（岩石≥70 & 熵增≥70）",
+      "持久且敏捷（岩石≥70 & 熵增≤40）",
+      "遇变不崩（岩石≥70 & 熵增≤50）",
+      "顶得住但返工变多（岩石≥70 & 熵增≥70）",
+      "敏捷有边（筋骨≥70 & 熵增≤50）",
+      "快变但返工风险（筋骨≥70 & 熵增≥70）",
+      "创变执行（火焰≥66 & 筋骨≥70）",
+      "善意协调但边界弹性增（指南针≥70 & 桥梁≥70）",
+      "连续性略降但韧性提升（筋骨≥70 & 盾牌≥70）"
+    ],
+    mid:[
+      "硬扛并能转圜，恢复一般（岩石≥70 & 熵增≥70）",
+      "稳中求进（筋骨≥70 & 熵增≤50）"
+    ],
+    low:[
+      "硬扛但恢复慢（岩石≥70 & 熵增≥70）",
+      "持久稳推（岩石≥70 & 熵增≤40）",
+      "刚性维稳（筋骨≥70 & 熵增≥70）",
+      "改动可承受（筋骨≥70 & 熵增≤50）",
+      "坚定且可协同（指南针≥70 & 桥梁≥70）",
+      "坚定但强硬（指南针≥70 & 桥梁≤50）",
+      "高连续性（筋骨≥70 & 盾牌≥70）",
+      "规则在但情绪打断（筋骨≥70 & 盾牌≤55）"
+    ]
+  },
+  "火焰":{
+    high:[
+      "反应性攻击（盾牌≤50 & 桥梁≤50）",
+      "高能但不失控（盾牌≥60）",
+      "高能但能软着陆（桥梁≥65）",
+      "强号召（盾牌≥60 & 桥梁≥65）",
+      "高能失控（盾牌≤50）",
+      "极化领导（桥梁≤50）",
+      "创变执行（水流≥70 & 筋骨≥70）",
+      "号召+凝聚（桥梁≥70 & 熵增≤50）",
+      "动员强但协调成本飙升（桥梁≥70 & 熵增≥70）",
+      "冷静转强势推进（盾牌≥75 & 火焰≥72）"
+    ],
+    mid:[
+      "弹性改进（水流≥70 & 筋骨=50–65）",
+      "思路在、势能不足（水流≥70 & 火焰≤55）"
+    ],
+    low:[
+      "冷硬推进（桥梁≤50 & 熵增≥70）",
+      "强势但可控（桥梁≤50 & 熵增≤50）",
+      "思路在、势能不足（当火焰低时普遍适用）"
+    ]
+  },
+  "指南针":{
+    high:[
+      "清晰拍板（镜面≥72 & 盾牌≥60）",
+      "清晰定向（镜面≥72 & 指南针≥65）",
+      "坚定且可协同（桥梁≥70 & 水流≤50）",
+      "善意协调但边界弹性增（桥梁≥70 & 水流≥66）",
+      "坚定但强硬（桥梁≤50 & 水流≤50）",
+      "坚定且易协同（桥梁≥70）",
+      "坚定有边界但协作摩擦（岩石≥70 & 桥梁≤50）",
+      "一致对外（岩石≥70 & 桥梁≥70）"
+    ],
+    mid:["指向模糊，表述依赖外部锚定"],
+    low:["原则仍在但执行弹性增（岩石≤55）","看得清但目标摇摆（镜面≥72 & 指南针≤55）","分析多但锚定弱（镜面≥72 & 指南针≤55）","清晰但起伏大（镜面≥72 & 盾牌≤55）"]
+  },
+  "盾牌":{
+    high:[
+      "清晰拍板（与镜面/指南针）",
+      "稳定可靠（筋骨≥70 & 水流≤50）",
+      "高冷静（火焰≤55 & 熵增≤50）"
+    ],
+    mid:["稳定但波动（与筋骨/火焰组合）"],
+    low:[
+      "清晰但起伏大（镜面≥72）",
+      "高能失控（火焰≥72）",
+      "极化领导（火焰≥72 & 桥梁≤50）",
+      "冷静变“压抑”感（熵增≥70）",
+      "规则在但情绪打断（筋骨≥70 & 水流≤50）"
+    ]
+  },
+  "桥梁":{
+    high:[
+      "高能但能软着陆（火焰≥72）",
+      "强号召（火焰≥72 & 盾牌≥60）",
+      "坚定且可协同（指南针≥70 & 水流≤50）",
+      "善意协调但边界弹性增（指南针≥70 & 水流≥66）",
+      "号召+凝聚（火焰≥66 & 熵增≤50）",
+      "一致对外（岩石≥70 & 指南针≥70）"
+    ],
+    mid:["协作稳定性一般，表述因搭配不同而变化"],
+    low:[
+      "反应性攻击（火焰≥72 & 盾牌≤50）",
+      "高能失控（火焰≥72 & 盾牌≤50）",
+      "极化领导（火焰≥72 & 桥梁≤50）",
+      "冷硬推进（火焰≥66 & 熵增≥70）",
+      "坚定但强硬（指南针≥70 & 水流≤50）",
+      "坚定有边界但协作摩擦（岩石≥70 & 指南针≥70）"
+    ]
+  },
+  "镜面":{
+    high:[
+      "清晰拍板（指南针≥65 & 盾牌≥60）",
+      "看得清但目标摇摆（指南针≤55）",
+      "清晰但起伏大（盾牌≤55）",
+      "分析多但锚定弱（指南针≤55）",
+      "清晰定向（指南针≥65）"
+    ],
+    mid:["分析充分，但决策阻抗"],
+    low:["觉察不足，缺乏锚定（需外部规则/目标口径）"]
+  },
+  "筋骨":{
+    high:[
+      "敏捷有边（水流≥66 & 熵增≤50）",
+      "快变但返工风险（水流≥66 &熵增≥70）",
+      "刚性维稳（水流≤50 & 熵增≥70）",
+      "稳定高效（水流≤50 & 熵增≤50）",
+      "改动可承受（水流≥66 &熵增≤50）",
+      "创变执行（水流≥70 & 火焰≥66）",
+      "高连续性（盾牌≥70 & 水流≤50）"
+    ],
+    mid:["稳中求进（水流=50–65）"],
+    low:["创意多但落地难（水流≥70 & 火焰≥66）"]
+  }
+};
+
+/* ========= 生态上下文 ========= */
+let e2_raw = readArr('step2_eco16_raw',16) || null;
+let e3_fix = readArr('step3_eco16',16) || null;
+let e_env = (e2_raw||e3_fix) ? ECO16.map((_,i)=>{
+  const a = e2_raw ? clamp01(e2_raw[i]) : null;
+  const b = e3_fix ? clamp01(e3_fix[i]) : null;
+  if(a!=null && b!=null) return Math.round(alpha*a + (1-alpha)*b);
+  return Math.round(a!=null? a : (b!=null? b : 0));
+}) : null;
+const eco_from_badges = ecology16FromBadges(s_env, e_env);
+if(!e_env) e_env = eco_from_badges.slice();
+
+/* ========= 分圈雷达（原样，未改动） ========= */
+document.addEventListener("click", function(e){ if(e.target && e.target.id==="btnExport"){ try{ const p=getNS("dashboardUser", {}); setNS("dashboardUser", p); console.log("[dashboard] manual sync", p); window.location.href="file2_with_user_overlay_persist.html"; }catch(err){} }
+if(e.target && e.target.id==="btnStep4"){ window.location.href="hub.html"; }
+});
+const mapStruct = v => (v||0) * 0.5;
+const mapEco    = v => 50 + (v||0) * 0.5;
+const mapPot    = v => 100 + (v||0) * 0.5;
+function makeSparse16(anchorIdx8, values8, mapper){
+  const arr = new Array(16).fill(NaN);
+  for(let i=0;i<anchorIdx8.length;i++){
+    const idx = anchorIdx8[i];
+    if(idx >= 0 && idx < 16 && values8[i] !== undefined && values8[i] !== null) {
+      arr[idx] = mapper(values8[i]);
+    }
+  }
+  return arr;
+}
+
+// 确保数据完整性
+const s_self_safe = Array.isArray(s_self) ? s_self : Array(8).fill(0);
+const s_env_safe = Array.isArray(s_env) ? s_env : Array(8).fill(0);
+const pot_self_safe = Array.isArray(pot_self) ? pot_self : Array(8).fill(0);
+const pot_env_safe = Array.isArray(pot_env) ? pot_env : Array(8).fill(0);
+const eco_from_badges_safe = Array.isArray(eco_from_badges) ? eco_from_badges : Array(16).fill(0);
+
+const ds_struct_self = makeSparse16(STRUCT_ANCHORS, s_self_safe, mapStruct);
+const ds_struct_env  = makeSparse16(STRUCT_ANCHORS, s_env_safe,  mapStruct);
+const ds_pot_self    = makeSparse16(POT_ANCHORS,    pot_self_safe, mapPot);
+const ds_pot_env     = makeSparse16(POT_ANCHORS,    pot_env_safe,  mapPot);
+const ds_eco16       = eco_from_badges_safe.map(mapEco);
+
+/* ========= 导出到接口（localStorage）供文件2自动同步 ========= */
+(function exportToOverlay(){
+  try{
+    const payload = {
+      ecology16: eco_from_badges_safe && Array.isArray(eco_from_badges_safe) ? eco_from_badges_safe.slice(0,16) : (e_env || []).slice(0,16),
+      potentialSelf8: Array.isArray(pot_self_safe) ? pot_self_safe.slice(0,8) : [],
+      potentialEnv8: Array.isArray(pot_env_safe) ? pot_env_safe.slice(0,8) : []
+    };
+    setNS('dashboardUser', payload);
+    // 方便调试：在控制台输出一次
+    console.log('[dashboard] wrote dashboardUser', payload);
+  }catch(e){ console.warn('exportToOverlay failed', e); }
+})();
+
+
+
+const STRUCT_ANCHOR_INV = {}; STRUCT_ANCHORS.forEach((ecoIdx,k)=>STRUCT_ANCHOR_INV[ecoIdx]=k);
+const POT_ANCHOR_INV    = {}; POT_ANCHORS.forEach((ecoIdx,k)=>POT_ANCHOR_INV[ecoIdx]=k);
+
+Chart.defaults.color = "#cfd7ff";
+Chart.defaults.borderColor = "rgba(255,255,255,.12)";
+const ctx = document.getElementById('radarOne').getContext('2d');
+
+const radarChart = new Chart(ctx,{
+  type:'radar',
+  data:{
+    labels: ECO16.map((n,i)=>`${i+1}.${n}`),
+    datasets:[
+      {
+        label:'结构（自评 · 8维）',     
+        data: ds_struct_self, 
+        borderColor:'#6c8cff', 
+        pointBackgroundColor:'#6c8cff', 
+        backgroundColor:'rgba(108,140,255,0.1)',
+        fill:false, 
+        borderWidth:2.5, 
+        pointRadius:4, 
+        pointHoverRadius:6,
+        spanGaps:true,
+        tension:0.1
+      },
+      {
+        label:'结构（环境+纠偏 · 8维）', 
+        data: ds_struct_env,  
+        borderColor:'#94b0ff', 
+        pointBackgroundColor:'#94b0ff', 
+        backgroundColor:'rgba(148,176,255,0.08)',
+        fill:false, 
+        borderWidth:2.5, 
+        pointRadius:4, 
+        pointHoverRadius:6,
+        spanGaps:true,
+        tension:0.1
+      },
+      {
+        label:'生态（由徽章推导 · 16维）', 
+        data: ds_eco16,      
+        borderColor:'#34d399', 
+        pointBackgroundColor:'#34d399', 
+        backgroundColor:'rgba(52,211,153,0.1)',
+        fill:true, 
+        borderWidth:2, 
+        pointRadius:3, 
+        pointHoverRadius:5,
+        tension:0.1
+      },
+      {
+        label:'潜力（自评 · 8维）',     
+        data: ds_pot_self,    
+        borderColor:'#fbbf24', 
+        pointBackgroundColor:'#fbbf24', 
+        backgroundColor:'rgba(251,191,36,0.1)',
+        fill:false, 
+        borderWidth:2.5, 
+        pointRadius:4, 
+        pointHoverRadius:6,
+        spanGaps:true,
+        tension:0.1
+      },
+      {
+        label:'潜力（环境+纠偏 · 8维）', 
+        data: ds_pot_env,     
+        borderColor:'#f59e0b', 
+        pointBackgroundColor:'#f59e0b', 
+        backgroundColor:'rgba(245,158,11,0.08)',
+        fill:false, 
+        borderWidth:2.5, 
+        pointRadius:4, 
+        pointHoverRadius:6,
+        spanGaps:true,
+        tension:0.1
+      }
+    ]
+  },
+  options:{
+    responsive:true, 
+    maintainAspectRatio:false,
+    interaction: {
+      intersect: false,
+      mode: 'point'
+    },
+    plugins:{
+      legend:{ 
+        display:true, 
+        position:'top', 
+        labels:{ 
+          color:'#dbe3ff', 
+          usePointStyle:true,
+          padding:15,
+          font: {
+            size: 12,
+            weight: '500'
+          }
+        } 
+      },
+      tooltip:{
+        backgroundColor: 'rgba(18, 24, 51, 0.95)',
+        titleColor: '#e7ecff',
+        bodyColor: '#cfd7ff',
+        borderColor: '#2a3b7a',
+        borderWidth: 1,
+        cornerRadius: 8,
+        displayColors: true,
+        callbacks:{
+          title: (items)=> items && items[0] ? ECO16[items[0].dataIndex] : '',
+          label: (ctx)=>{
+            const di = ctx.datasetIndex;
+            const idx = ctx.dataIndex;
+            if(Number.isNaN(ctx.raw) || ctx.raw === null || ctx.raw === undefined) return '';
+            let original = 0, name='';
+            if (di === 0) { // 结构·自评
+              const k = STRUCT_ANCHOR_INV[idx]; original = s_self_safe[k]; name = STRUCT8[k];
+            } else if (di === 1) { // 结构·环境+纠偏
+              const k = STRUCT_ANCHOR_INV[idx]; original = s_env_safe[k];  name = STRUCT8[k];
+            } else if (di === 2) { // 生态16
+              original = eco_from_badges_safe[idx]; name = '生态';
+            } else if (di === 3) { // 潜力·自评
+              const k = POT_ANCHOR_INV[idx]; original = pot_self_safe[k]; name = POT8[k];
+            } else if (di === 4) { // 潜力·环境
+              const k = POT_ANCHOR_INV[idx]; original = pot_env_safe[k];  name = POT8[k];
+            }
+            original = Math.round(original);
+            return `${ctx.dataset.label}: ${name} ${original}分`;
+          }
+        }
+      }
+    },
+    scales:{
+      r:{
+        min:0,
+        max:150,
+        ticks: { 
+          callback:(v)=>v, 
+          stepSize:25,
+          color: '#a9b4d0',
+          font: {
+            size: 10
+          },
+          showLabelBackdrop: false
+        },
+        grid: { 
+          color:(ctx)=> {
+            const v = ctx.tick.value;
+            if(v===50||v===100) return 'rgba(255,255,255,.4)';
+            if(v===25||v===75||v===125) return 'rgba(255,255,255,.2)';
+            return 'rgba(255,255,255,.12)';
+          },
+          lineWidth: (ctx) => {
+            const v = ctx.tick.value;
+            if(v===50||v===100) return 2;
+            return 1;
+          }
+        },
+        angleLines:{ 
+          color:'rgba(255,255,255,.18)',
+          lineWidth: 1
+        },
+        pointLabels:{ 
+          color:'#e6ebff', 
+          font:{ 
+            size:11,
+            weight: '500'
+          },
+          padding: 8
+        }
+      }
+    },
+    elements: {
+      line: {
+        borderJoinStyle: 'round'
+      },
+      point: {
+        hoverBorderWidth: 2
+      }
+    }
+  }
+});
+
+// 将雷达图实例保存到全局，供权重切换使用
+window.radarOne = radarChart;
+
+/* ========= 右侧面板渲染 ========= */
+function bandCls(v){ if(v>=70) return "good"; if(v<=50) return "bad"; return "warn"; }
+function badge(label, val, targetId){
+  return `<span class="badge ${bandCls(val)}" data-scroll="#${targetId}"><i class="dot"></i>${label} ${Math.round(val)}（${val>=70?'高':(val<=50?'低':'中')}）</span>`;
+}
+function barDual(label, v1, v2, tips, rowId){
+  v1 = Math.round(v1||0); v2 = Math.round(v2||0);
+  let html = `<div class='q' id='row-${rowId}'>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b>${label}</b>
+      <div>
+        <span class="badge ${bandCls(v1)}"><i class="dot"></i>自评 ${v1}（${v1>=70?'高':(v1<=50?'低':'中')}）</span>
+        <span class="badge ${bandCls(v2)}"><i class="dot"></i>环境+纠偏 ${v2}（${v2>=70?'高':(v2<=50?'低':'中')}）</span>
+      </div>
+    </div>
+    <div class='bar'><i style='width:${v1}%'></i></div><span class='value'>自评：${v1}</span>
+    <div class='bar alt1'><i style='width:${v2}%'></i></div><span class='value'>环境+纠偏：${v2}</span>`;
+  if(tips && tips.length){
+    const first = tips.slice(0,2), rest = tips.slice(2);
+    const items1 = first.map(t=> `<li>${t}</li>`).join('');
+    const items2 = rest.map(t=> `<li class="extra">${t}</li>`).join('');
+    const cls = rest.length ? 'tips collapsed' : 'tips';
+    const btn = rest.length ? `<div class="tip-toggle" data-target="tips-${rowId}">展开更多 ▾</div>` : '';
+    html += `<ul id="tips-${rowId}" class="${cls}">${items1}${items2}</ul>${btn}`;
+  }
+  html += `</div>`;
+  return html;
+}
+function barSingle(label, v2, tips, rowId, domainTagsHtml=''){
+  v2 = Math.round(v2||0);
+  let html = `<div class='q' id='row-${rowId}'>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b>${label}</b>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${domainTagsHtml}
+        <div class="badge ${bandCls(v2)}"><i class="dot"></i>环境+纠偏 ${v2}（${v2>=70?'高':(v2<=50?'低':'中')}）</div>
+      </div>
+    </div>
+    <div class='bar alt1'><i style='width:${v2}%'></i></div><span class='value'>环境+纠偏：${v2}</span>`;
+  if(tips && tips.length){
+    const first = tips.slice(0,2), rest = tips.slice(2);
+    const items1 = first.map(t=> `<li>${t}</li>`).join('');
+    const items2 = rest.map(t=> `<li class="extra">${t}</li>`).join('');
+    const cls = rest.length ? 'tips collapsed' : 'tips';
+    const btn = rest.length ? `<div class="tip-toggle" data-target="tips-${rowId}">展开更多 ▾</div>` : '';
+    html += `<ul id="tips-${rowId}" class="${cls}">${items1}${items2}</ul>${btn}`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+/* 结构规则表述（保持原有合并策略） */
+function statementsForAxis(i, S8){
+  const axis = STRUCT8[i]; const v = S8[i]||0;
+  const bk = v>=70?'high':(v<=50?'low':'mid');
+  const lib = BAND_TEXT[axis] || {high:[],mid:[],low:[]};
+  const general = lib[bk]||[];
+  const combo = comboRulesByAxis(s_env, e_env)[i] || [];
+  const seen = new Set(); const merged = [];
+  [...general, ...combo].forEach(t=>{ if(t && !seen.has(t)){ seen.add(t); merged.push(t);} });
+  return merged;
+}
+
+/* 渲染：结构8（自评+环境双条） + 徽章可点击定位 */
+document.getElementById('structList').innerHTML = STRUCT8_FULL.map((full,i)=> {
+  const tips = statementsForAxis(i, s_env);
+  return barDual(full, s_self[i], s_env[i], tips, `struct-${i}`);
+}).join('');
+document.getElementById('structBadges').innerHTML = s_env.map((v,i)=> badge(STRUCT8[i], v, `row-struct-${i}`)).join('');
+
+/* 渲染：生态16（由徽章推导，仅环境单条） + 领域小徽章 + 新增生态徽章文案 */
+// 使用与雷达图相同的数据源，确保数据一致性
+document.getElementById('ecoList').innerHTML = ECO16.map((name,i)=>{
+  const meta = ECO_META[name]||null;
+  const tagHtml = meta ? meta.domains.map(d=>`<span class="badge tag"><i class="dot"></i>${d}</span>`).join('') : '';
+  const v = eco_from_badges_safe[i]||0;  // 使用与雷达图相同的数据源
+  const band = v>=70?'high':(v<=50?'low':'mid');
+  const tips = meta && meta[band] ? meta[band] : [];
+  return barSingle(`${i+1}. ${name}${meta?`（${meta.alias}）`:''}`, v, tips, `eco-${i}`, tagHtml);
+}).join('');
+document.getElementById('ecoBadges').innerHTML = eco_from_badges_safe.map((v,i)=> badge(ECO16[i], v, `row-eco-${i}`)).join('');
+
+/* 渲染：潜力8（自评+环境双条） + 徽章可点击定位（保持原样） */
+document.getElementById('potList').innerHTML = POT8.map((n,i)=> barDual(`${i+1}. ${n}`, pot_self[i], pot_env[i], null, `pot-${i}`)).join('');
+document.getElementById('potBadges').innerHTML = pot_env.map((v,i)=> badge(POT8[i], v, `row-pot-${i}`)).join('');
+
+/* 熵增提示块（保持原逻辑） */
+(function renderEntropy(){
+  const H = entropyFromE16(e_env);
+  const box = document.getElementById('entropyBox');
+  const badge = document.getElementById('entropyBadge');
+  const ul = document.getElementById('entropyTips');
+  if(!box) return;
+  let level = '中', cls='warn', tips=[];
+  if(H>=70){ level='高'; cls='bad';
+    tips = [
+      "硬扛但恢复慢 / 硬扛并能转圜 / 硬扛且具韧性（岩石组合）",
+      "顶得住但返工变多（水流组合）",
+      "快变但返工风险（筋骨组合）",
+      "动员强但协调成本飙升（桥梁组合）",
+      "冷静变“压抑”感（盾牌组合）"
+    ];
+  }else if(H<=50){ level='低'; cls='good';
+    tips = [
+      "持久稳推 / 持久且敏捷（岩石组合）",
+      "遇变不崩（水流组合）",
+      "稳定高效 / 改动可承受（筋骨组合）",
+      "号召+凝聚（桥梁组合）",
+      "高冷静（盾牌组合）"
+    ];
+  }else{
+    tips = ["环境复杂度中等，表现依赖其他维度"];
+  }
+  badge.className = `badge tag ${cls}`;
+  badge.innerHTML = `<i class="dot"></i>当前：${H}（${level}）`;
+  ul.innerHTML = tips.map(t=>`<li>${t}</li>`).join('');
+  box.style.display = 'block';
+})();
+
+/* Tab 切换 + 折叠交互（保持原样） */
+function activate(id){
+  ['tab-struct','tab-eco','tab-pot'].forEach(t=>document.getElementById(t).classList.remove('active'));
+  ['panel-struct','panel-eco','panel-pot'].forEach(p=>document.getElementById(p).style.display='none');
+  document.getElementById('tab-'+id).classList.add('active');
+  document.getElementById('panel-'+id).style.display='block';
+}
+document.getElementById('tab-struct').onclick=()=>activate('struct');
+document.getElementById('tab-eco').onclick=()=>activate('eco');
+document.getElementById('tab-pot').onclick=()=>activate('pot');
+
+document.addEventListener('click', function(e){
+  const t = e.target.closest('.tip-toggle'); 
+  if(t){ const id = t.getAttribute('data-target'); const ul = document.getElementById(id);
+    if(ul){ const collapsed = ul.classList.contains('collapsed');
+      if(collapsed){ ul.classList.remove('collapsed'); t.textContent = '收起 ▴'; }
+      else{ ul.classList.add('collapsed'); t.textContent = '展开更多 ▾'; }
+    }
+  }
+  const b = e.target.closest('.badge');
+  if(b && b.dataset.scroll){
+    const el = document.querySelector(b.dataset.scroll);
+    if(el){
+      el.classList.add('highlight');
+      el.scrollIntoView({behavior:'smooth', block:'center'});
+      setTimeout(()=>el.classList.remove('highlight'), 3000);
+    }
+  }
+}, false);
+
+/* ======== 跨页自动热更新（原样） ======== */
+window.addEventListener('storage', (e) => {
+  if (['step2_struct_raw','step2_eco16_raw','step3_struct','step3_eco16','step2_bf_env','step3_bf_env','step4_bf_env','step1_bigfive'].includes(e.key)) {
+    location.reload();
+  }
+});
+</script>
+<script>
+
+/* ===== 权重模式切换：只新增逻辑，不干扰原有结构 ===== */
+(function WeightModePatch(){
+  const MODE_KEY = 'weight_mode';
+  const MODE_MAP = {
+    insight: { label:'洞察模式 0.50 / 0.30 / 0.20', w:{s4:0.50, s3:0.30, s2:0.20} },
+    experience: { label:'体验模式 0.48 / 0.32 / 0.20', w:{s4:0.48, s3:0.20, s2:0.32} },
+    balanced: { label:'平衡模式 0.46 / 0.27 / 0.27', w:{s4:0.46, s3:0.27, s2:0.27} }
+  };
+  function getMode(){
+    const v = localStorage.getItem(MODE_KEY) || 'insight';
+    return MODE_MAP[v] ? v : 'insight';
+  }
+  function setMode(name){
+    localStorage.setItem(MODE_KEY, name);
+  }
+  function applyDesc(){
+    const sel = document.getElementById('weightMode');
+    const desc = document.getElementById('weightDesc');
+    if(!sel || !desc) return;
+    const m = MODE_MAP[sel.value];
+    desc.textContent = m ? ('当前：' + m.label + '（本质/纠偏/环境）') : '';
+  }
+  function weightedMix(v2,v3,v4, w){
+    // clamp + weighted sum: 本质(s4) / 纠偏(s3) / 环境(s2)
+    function c(x){ x = Number(x)||0; return Math.max(0, Math.min(100, x)); }
+    return Math.round( c(v4)*w.s4 + c(v3)*w.s3 + c(v2)*w.s2 );
+  }
+  function recomputeAll(){
+    try{
+      const mode = getMode();
+      const W = MODE_MAP[mode].w;
+
+      // === Big Five 三源合成逻辑 ===
+      const bfData = loadBigFiveData();
+      const synthesizedBF = synthesizeBigFive(bfData, mode);
+      console.log('[Dashboard] Big Five 三源合成结果:', synthesizedBF);
+
+      // 使用 bf_mappings.js 将合成的 Big Five 转换为结构8和潜力8
+      let struct_env8, pot_env;
+      if (window.bf_to_struct8 && window.bf_to_pot8) {
+        struct_env8 = window.bf_to_struct8(synthesizedBF);
+        pot_env = window.bf_to_pot8(synthesizedBF);
+        
+        // 标记这些数据是计算得出的，不是默认值
+        struct_env8._computed = true;
+        pot_env._computed = true;
+        
+        // 保存计算得出的 pot_env 到 localStorage
+        setNS('pot_env', pot_env);
+        
+        console.log('[Dashboard] 从Big Five派生 - 结构8:', struct_env8, '潜力8:', pot_env);
+      } else {
+        console.warn('[Dashboard] bf_mappings.js 函数不可用，使用传统逻辑');
+        // 回退到传统逻辑
+        const s_self = (window.s_self || getNS('step1_struct', [])) || [];
+        const s2_raw = (window.s2_raw || getNS('step2_struct_raw', [])) || [];
+        const s3_fix = (window.s3_fix || getNS('step3_struct', [])) || [];
+        let s4_core= (window.s4_core || getNS('step4_core_struct', null)) || null;
+        if(!Array.isArray(s4_core) || s4_core.length!==8){ s4_core = (Array.isArray(s3_fix)&&s3_fix.length===8) ? s3_fix : s_self; }
+        
+        struct_env8 = Array(8).fill(0).map((_,i)=>weightedMix(s2_raw[i], s3_fix[i], s4_core[i], W));
+        pot_env = Array(8).fill(0).map((_,i)=>weightedMix(s2_raw[i], s3_fix[i], s4_core[i], W));
+        
+        // 保存传统逻辑计算的 pot_env
+        setNS('pot_env', pot_env);
+      }
+// 兼容旧代码：部分生态推导/可视化可能仍引用 struct8；此处别名指向结构（环境+纠偏）
+const struct8 = struct_env8.slice(0);
+struct8._computed = struct_env8._computed; // 保持计算标记
+      // 注意：结构（自评）不受权重影响，recomputeAll 不改动它；下面仅用于生态推导时的基底可选。
+
+      // 生态 16 维：沿用现有推导逻辑，但用新的结构8作为基底
+      // 约定：存在函数 deriveEco16FromStruct(struct8) 或类似；若无，则使用简单映射/锚点推导
+      let eco16 = [];
+      if (typeof window.deriveEco16FromStruct === 'function'){
+        eco16 = window.deriveEco16FromStruct(struct8);
+      }else{
+        // fallback：按锚点/相邻扩散生成（不改你已有的 ECO_INDEX 与锚点常量的话术）
+        const anchors = (window.STRUCT_ANCHORS || [8,7,6,12,4,15,1,0]).map(x=>Math.max(0,Math.min(15,Number(x)||0)));
+        eco16 = Array(16).fill(0);
+        anchors.forEach((ecoIdx, si)=>{
+          const val = struct8[si]||0;
+          eco16[ecoIdx] = Math.max(eco16[ecoIdx], val);
+          eco16[(ecoIdx+1)%16] = Math.max(eco16[(ecoIdx+1)%16], Math.round(val*0.66));
+          eco16[(ecoIdx+15)%16] = Math.max(eco16[(ecoIdx+15)%16], Math.round(val*0.66));
+        });
+        eco16 = eco16.map(v=>Math.min(100, v));
+      }
+
+      // 潜力 8 维（两条）：
+      // 自评路径：尽量使用已有变量/算法（如 pot_self_base），若无则用结构8映射
+      // 环境+纠偏路径：基于同一权重（本质/纠偏/环境）组合
+      // 潜力（自评）保持不变：优先用已有 window.pot_self 或存储，不随权重变化
+      let pot_self = (window.pot_self && window.pot_self.slice ? window.pot_self.slice(0,8): null);
+      if(!pot_self){ try{ pot_self = getNS('pot_self_raw', null); }catch(e){}
+        if(!Array.isArray(pot_self) || pot_self.length!==8) { 
+          pot_self = sampleWithUserSeed(8,201); 
+        }
+      }
+      // pot_env 已在上面的 Big Five 合成逻辑中定义，这里不再重复定义
+      
+      // 为潜力8添加名称标签以提升自信指数准确性
+      if (Array.isArray(pot_env)) {
+        pot_env.__names__ = POT8;
+      }
+      if (Array.isArray(pot_self)) {
+        pot_self.__names__ = POT8;
+      }
+
+// 将结果喂给现有可视化（若有全局 chart 实例，直接替换 data 并 update）
+      // 兼容你现有命名：radar / bar panels，如无则跳过
+      if (window.updateDashboardFromVectors){
+        window.updateDashboardFromVectors({struct8: struct_env8, eco16, pot_self, pot_env});
+      } else {
+        // 尝试 Chart.js 实例约定 id
+        if (window.radarOne && radarOne.data && radarOne.update){
+          // 假设数据顺序：两结构/生态/两潜力（按你现有配置）
+          const ds = radarOne.data.datasets||[];
+          // 替换生态与潜力数据集（不调整图例/样式）
+          for (let i=0;i<ds.length;i++){
+            if (/生态/.test(ds[i].label)) {
+              ds[i].data = eco16.map(mapEco); // 16维，50–100圈
+            }
+            else if (/潜力/.test(ds[i].label)) {
+              if (/自评/.test(ds[i].label)) {
+                // ★ 自评潜力也刷新
+                const currentPotSelf = getNS('pot_self_raw', null) 
+                                      || pot_self || [];
+                ds[i].data = makeSparse16(POT_ANCHORS, currentPotSelf, mapPot); // 8→16，100–150圈
+              } else {
+                ds[i].data = makeSparse16(POT_ANCHORS, pot_env,  mapPot); // 8→16，100–150圈
+              }
+            }
+            else if (/结构/.test(ds[i].label)) {
+              if (/自评/.test(ds[i].label)) {
+                // ★ 新增：用"当前会话"的 step1_struct 刷新
+                const s1 = getNS('step1_struct', []) 
+                           || (Array.isArray(window.s_self)? window.s_self : []);
+                ds[i].data = makeSparse16(STRUCT_ANCHORS, s1, mapStruct); // 8→16，0–50圈
+              } else {
+                ds[i].data = makeSparse16(STRUCT_ANCHORS, struct_env8, mapStruct); // 8→16，0–50圈
+              }
+            }
+          }
+          radarOne.update();
+        }
+        // 右侧条形等：若你已有刷新函数，请在 window.updateDashboardFromVectors 里实现
+      }
+
+      // 更新 Big Five UI 显示
+      updateBigFiveUI(synthesizedBF, bfData, mode);
+
+      // 同步导出给 overlay 使用（覆盖之前的 export 载荷）
+      const payload = { 
+        ecology16: eco16.slice(0,16), 
+        potentialSelf8: pot_self.slice(0,8), 
+        potentialEnv8: pot_env.slice(0,8), 
+        bigFiveSynthesis: synthesizedBF,
+        bigFiveData: bfData,
+        weightMode: mode, 
+        weights: W 
+      };
+      try{ setNS('dashboardUser', payload); }catch(e){}
+      console.log('[weight-mode] export', payload);
+      try{ __updateChartsByLabels_Filtered({struct_env8, pot_env}); }catch(e){}
+
+      // 保存最终结果到会话（修复Hub状态和团队页数据问题）
+      const computed = {
+        structure: struct_env8,        // 8维（环境+纠偏+本质混合）
+        ecology16: eco16,              // 16维生态（标准）
+        ecology: eco16,                // 兼容 storage.js 聚合口径
+        potentialSelf8: pot_self,      // 自身潜力
+        potentialEnv8: pot_env,        // 8维潜力（环境路径）
+        potentialA: pot_self,          // 兼容 storage.js 聚合口径
+        potentialB: pot_env,           // 兼容 storage.js 聚合口径
+        weightMode: mode,
+        weights: W,                    // {s4, s3, s2}
+        savedAt: new Date().toISOString()
+      };
+      try { 
+        if(window.PSYS && typeof PSYS.saveComputed === 'function') {
+          PSYS.saveComputed(computed); 
+          console.log('[Dashboard] saveComputed success', computed);
+        } else {
+          console.warn('[Dashboard] PSYS.saveComputed not available');
+        }
+      } catch(e) { 
+        console.warn('saveComputed failed', e); 
+      }
+      
+      // 向量体检断言
+      try {
+        assertVec('struct_env8', struct_env8, 8);
+        assertVec('eco16', eco16, 16);
+        assertVec('pot_self', pot_self, 8);
+        assertVec('pot_env', pot_env, 8);
+      } catch(e) {
+        console.error('向量体检失败:', e.message);
+        alert('数据校验失败：' + e.message);
+        throw e;
+      }
+
+      // 计算并渲染指数
+      computeAndRenderIndices({
+        struct8: struct_env8,
+        struct_env8: struct_env8,
+        pot8: pot_env,  // 修正：应该传递pot_env而不是pot_self
+        pot_env8: pot_env,
+        eco16: eco16,
+        E16: eco16
+      }, true);  // 强制刷新指标墙
+
+      // 派发重算完成事件，让其他组件监听并更新
+      window.dispatchEvent(new CustomEvent('weights:recomputed', {
+        detail: { struct8: struct_env8, eco16, pot_env, pot_self }
+      }));
+
+    }catch(err){ console.warn('recomputeAll failed', err); }
+  }
+
+  // Big Five UI 更新函数
+  function updateBigFiveUI(synthesizedBF, bfData, mode) {
+    try {
+      // 更新权重模式显示
+      const modeElement = document.getElementById('bfSynthesisMode');
+      if (modeElement) {
+        const modeNames = {
+          'insight': '洞察模式',
+          'experience': '体验模式', 
+          'balanced': '平衡模式'
+        };
+        modeElement.querySelector('span').textContent = modeNames[mode] || mode;
+      }
+
+      // 更新Big Five条形图
+      const dimensions = ['o', 'c', 'e', 'a', 'n'];
+      dimensions.forEach((dim, index) => {
+        const value = Math.round(synthesizedBF[index] || 0);
+        const barElement = document.getElementById(`bf-${dim}-bar`);
+        const valueElement = document.getElementById(`bf-${dim}-value`);
+        
+        if (barElement) {
+          barElement.style.width = `${value}%`;
+        }
+        if (valueElement) {
+          valueElement.textContent = value;
+        }
+      });
+
+      // 更新数据来源显示
+      const sourcesElement = document.getElementById('bfDataSources');
+      if (sourcesElement && bfData) {
+        const step1Status = Array.isArray(bfData.step1_bf) && bfData.step1_bf.length >= 5 ? '✓' : '—';
+        const step23Status = (Array.isArray(bfData.step2_bf_env) && bfData.step2_bf_env.length >= 5) || 
+                            (Array.isArray(bfData.step3_bf_env) && bfData.step3_bf_env.length >= 5) ? '✓' : '—';
+        const step4Status = Array.isArray(bfData.step4_bf_env) && bfData.step4_bf_env.length >= 5 ? '✓' : '—';
+        sourcesElement.textContent = `数据来源：Step1(${step1Status}) + Step2+3(${step23Status}) + Step4(${step4Status})`;
+      }
+
+      console.log('[Dashboard] Big Five UI 更新完成');
+    } catch (error) {
+      console.error('[Dashboard] Big Five UI 更新失败:', error);
+    }
+  }
+
+  function hydrateFromSession(){
+    // 会话数据回灌机制：从当前会话恢复数据到本地键，避免读取旧数据或串台
+    if(!window.PSYS) return;
+    const NS = PSYS.NS;
+    const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`)||'null');
+    if(!meta) return;
+    const sess = PSYS.getSession(meta.teamId, meta.userId, meta.runId) || {};
+
+    // 有就回灌到本页用的临时键；没有就别覆盖
+    const want = {
+      step1_struct:    sess?.step1?.struct,
+      step2_struct_raw:sess?.step2?.structRaw,
+      step3_struct:    sess?.step3?.struct,
+      step3_eco16:     sess?.step3?.eco16,
+      step4_core_struct: sess?.step4?.coreStruct,
+
+      // NEW: Big Five 三源回灌
+      step1_bigfive:   sess?.step1?.bigfive,
+      step2_bf_env:    sess?.step2?.bf_env,
+      step3_bf_env:    sess?.step3?.bf_env,
+      step4_bf_env:    sess?.step4?.bf_env,
+
+      // NEW: 潜力自评数据回灌
+      pot_self_raw:    sess?.step5?.potSelfArray
+    };
+    Object.entries(want).forEach(([k,v])=>{
+      if(Array.isArray(v)) {
+        try {
+          setNS(k, v);
+          console.log(`[Dashboard] hydrated ${k} from session:`, v);
+        } catch(e) {
+          console.warn(`[Dashboard] hydrate failed for ${k}:`, e);
+        }
+      }
+    });
+  }
+  function initUI(){
+    const sel = document.getElementById('weightMode');
+    if(!sel) return;
+    const cur = getMode();
+    sel.value = cur;
+    applyDesc();
+    sel.addEventListener('change', ()=>{ setMode(sel.value); applyDesc(); recomputeAll(); });
+    // 首次：延迟到原图初始化后再跑一次
+  setTimeout(recomputeAll, 100);
+}
+
+// 暴露 recomputeAll 为全局函数，解决作用域问题
+window.__recomputeAll__ = recomputeAll;   // 暴露为全局
+window.recomputeAll = recomputeAll;       // 兼容已有直接调用
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  // 先回灌会话数据，再初始化UI
+  hydrateFromSession();
+  initUI();
+});
+})();
+
+</script>
+
+<div id="toast" style="position:fixed;right:16px;bottom:16px;z-index:9999;
+  background:rgba(33, 150, 243, .95);color:#fff;padding:10px 14px;border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;transform:translateY(10px);
+  transition:opacity .25s ease, transform .25s ease;pointer-events:none;font-size:14px;">
+  已保存
+</div>
+<script>
+
+/* ====== 方案保存 & 全页刷新绑定（仅新增，不影响原逻辑） ====== */
+(function WeightModeSaveAndBind(){
+  const MODE_KEY = 'weight_mode';
+  const SAVE_KEY = 'weight_scheme_current';
+  const SAVE_HISTORY = 'weight_scheme_history';
+
+  function toast(msg){
+    const t = document.getElementById('toast'); if(!t) return;
+    t.textContent = msg || '已保存';
+    t.style.opacity = '1'; t.style.transform='translateY(0)';
+    setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateY(10px)'; }, 1200);
+  }
+
+  // 提供一个全局 Hook：让外层可调用更新 UI 数字/图标
+  // 默认实现：查找 data-bind="struct8[0]" / "eco16[3]" / "pot_self[2]" / "pot_env[5]" 的元素并写入
+  function defaultUpdateBindings(vectors){
+    const q = document.querySelectorAll('[data-bind]');
+    if(!q) return;
+    q.forEach(el=>{
+      const key = el.getAttribute('data-bind')||'';
+      try{
+        let val = null;
+        if(/^struct8\[\d+\]$/.test(key)){ const i=+key.match(/\d+/)[0]; val = vectors.struct8[i]; }
+        else if(/^eco16\[\d+\]$/.test(key)){ const i=+key.match(/\d+/)[0]; val = vectors.eco16[i]; }
+        else if(/^pot_self\[\d+\]$/.test(key)){ const i=+key.match(/\d+/)[0]; val = vectors.pot_self[i]; }
+        else if(/^pot_env\[\d+\]$/.test(key)){ const i=+key.match(/\d+/)[0]; val = vectors.pot_env[i]; }
+        if(val!=null){
+          el.textContent = String(val);
+          el.setAttribute('data-value', String(val));
+        }
+      }catch(e){}
+    });
+  }
+  window.__updateBindingsIfAny = defaultUpdateBindings;
+
+  // 监听自定义事件，统一刷新 UI（包括你的图表、条形图、数值徽标）
+  window.addEventListener('weights:recomputed', function(ev){
+    const vectors = (ev && ev.detail) || {};
+    // 1) 若你定义了 updateDashboardFromVectors，就交给它优先处理（之前逻辑已调用过一次；这里是事件通告，供旁路使用）
+    if (typeof window.updateDashboardFromVectors === 'function'){
+      try{ window.updateDashboardFromVectors(vectors); }catch(e){}
+    }
+    // 2) 数据绑定的兜底刷新
+    try{ window.__updateBindingsIfAny(vectors); }catch(e){}
+  });
+
+  // 接管保存按钮：保存当前模式与权重到 localStorage，并触发一次全页刷新事件
+  function initSave(){
+    const btn = document.getElementById('btnSaveScheme');
+    const sel = document.getElementById('weightMode');
+    if(!btn || !sel) return;
+    btn.addEventListener('click', function(){
+      try{
+        const mode = localStorage.getItem(MODE_KEY) || sel.value || 'insight';
+        // 与 WeightModePatch 中 MODE_MAP 保持一致（从 window 侧取）
+        const mm = window.__MODE_MAP__ || {
+          insight:{w:{s4:0.50,s3:0.30,s2:0.20}},
+          experience:{w:{s4:0.48,s3:0.20,s2:0.32}},
+          balanced:{w:{s4:0.46,s3:0.27,s2:0.27}}
+        };
+        const payload = {
+          mode,
+          weights: mm[mode] ? mm[mode].w : mm.insight.w,
+          saved_at: new Date().toISOString()
+        };
+        localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+        // 写入保存历史（最多保留5条）
+        let hist = []; try{ hist = JSON.parse(localStorage.getItem(SAVE_HISTORY)||'[]')||[]; }catch(e){}
+        hist.unshift(payload); hist = hist.slice(0,5);
+        localStorage.setItem(SAVE_HISTORY, JSON.stringify(hist));
+        toast('方案已保存：' + mode);
+        // 触发一次 recompute（确保保存后与显示一致）
+        if (typeof window.__recomputeAll__==='function'){ window.__recomputeAll__(); }
+      }catch(e){}
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', initSave);
+})();
+
+
+function __updateChartsByLabels(vectors){
+  try{
+    if (!window.Chart || !Chart.instances) return;
+    const inst = Object.values(Chart.instances||{});
+    inst.forEach(ch=>{
+      if(!ch || !ch.data || !Array.isArray(ch.data.datasets)) return;
+      const ds = ch.data.datasets;
+      let touched = false;
+      for (let i=0;i<ds.length;i++){
+        const label = (ds[i].label||'')+'';
+        if (/结构/.test(label)) { ds[i].data = (vectors.struct8||[]).map(v=> Math.round(v*0.5)); touched = true; }
+        else if (/生态/.test(label)) { ds[i].data = (vectors.eco16||[]).map(v=> 50 + Math.round(v*0.5)); touched = true; }
+        else if (/潜力/.test(label)) {
+          if (/自评/.test(label)) { ds[i].data = (vectors.pot_self||[]).map(v=> 100 + Math.round(v*0.5)); touched = true; }
+          else { ds[i].data = (vectors.pot_env||[]).map(v=> 100 + Math.round(v*0.5)); touched = true; }
+        }
+      }
+      if (touched) { try{ ch.update(); }catch(e){} }
+    });
+  }catch(e){ console.warn(e); }
+}
+
+
+function __updateChartsByLabels_Filtered(vectors){
+  try{
+    if (!window.Chart || !Chart.instances) return;
+    const inst = Object.values(Chart.instances||{});
+    inst.forEach(ch=>{
+      if(!ch || !ch.data || !Array.isArray(ch.data.datasets)) return;
+      const ds = ch.data.datasets;
+      let touched = false;
+      for (let i=0;i<ds.length;i++){
+        const label = (ds[i].label||'')+'';
+        // 结构（环境+纠偏）
+        if (/结构/.test(label) && !/自评/.test(label) && ( /环境/.test(label) || /纠偏/.test(label) )) {
+          ds[i].data = makeSparse16(STRUCT_ANCHORS, vectors.struct_env8||[], mapStruct); touched = true;
+        }
+        // 潜力（环境+纠偏）
+        else if (/潜力/.test(label) && !/自评/.test(label) && ( /环境/.test(label) || /纠偏/.test(label) )) {
+          ds[i].data = makeSparse16(POT_ANCHORS,    vectors.pot_env||[],     mapPot); touched = true;
+        }
+      }
+      if (touched) { try{ ch.update(); }catch(e){} }
+    });
+  }catch(e){ console.warn(e); }
+}
+
+</script>
+
+<!-- ========== 差异指数（M）徽章区（不改排版） ========== -->
+<div id="maskIndexBadge" style="display:flex;gap:10px;align-items:center;margin:8px 0;flex-wrap:wrap">
+  <span style="font-weight:600;">M · 差异指数：</span>
+  <span id="maskScore" class="chip" style="background:#1f2a53;color:#cfe3ff;padding:6px 10px;border-radius:999px;">--</span>
+  <span id="maskType" class="chip" style="background:#24305f;color:#ffd57a;padding:6px 10px;border-radius:999px;">类型：--</span>
+  <button id="maskDetailBtn" class="btn" style="padding:6px 10px">查看细节</button>
+</div>
+
+<!-- ========== 伪装观察细条（不改排版） ========== -->
+<div id="maskObserveStrip" style="margin-top:6px;padding:8px 10px;border-radius:10px;background:rgba(255,215,130,.08);color:#ffd57a;display:flex;gap:10px;align-items:center;">
+  <strong style="color:#ffd57a;">伪装观察</strong>
+  <span id="maskObserveText" style="color:#e7efff;opacity:.85;">—</span>
+</div>
+
+<script>
+/* ========= 差异指数核心模块 (no DOM, no Chart.js) ========= */
+(function(){
+  const ECO16 = [
+    "信任速度","协作质量","关系韧性","影响半径","目标推进力","节奏管理",
+    "应变效率","落地闭环度","洞察敏锐度","表达条理度","信息整合度","改进驱动力",
+    "能量外放","冲突风格","环境贴合度","幸福感基础"
+  ];
+
+  const ECO_INDEX = (() => {
+    const m = {}; ECO16.forEach((n,i)=>m[n]=i); return m;
+  })();
+
+  const clamp100 = (x)=> Math.max(0, Math.min(100, Math.round(Number(x) || 0)));
+  const getE    = (eco16, name)=> clamp100(eco16?.[ECO_INDEX[name]]);
+
+  function entropyFromE16(eco16){
+    const L = getE(eco16, "落地闭环度");
+    const J = getE(eco16, "节奏管理");
+    const F = getE(eco16, "环境贴合度");
+    return clamp100(100 - (0.5*L + 0.3*J + 0.2*F));
+  }
+
+  function normalizeStruct(arr8){
+    const a = (Array.isArray(arr8) && arr8.length===8) ? arr8.map(clamp100) : Array(8).fill(50);
+    return {
+      _arr: a,
+      镜面:a[0]||0, 筋骨:a[1]||0, 水流:a[2]||0, 火焰:a[3]||0,
+      指南针:a[4]||0, 盾牌:a[5]||0, 桥梁:a[6]||0, 岩石:a[7]||0
+    };
+  }
+
+  function calcSmallIndices(eco16, structEnv8, entropyValue){
+    const S = normalizeStruct(structEnv8);
+    const E = (n)=> getE(eco16, n);
+    const H = clamp100(entropyValue);
+
+    const bandPenaltyConf = Math.max(0, Math.abs(E("冲突风格")-60)-10)*0.5;
+    const penEnergy       = Math.max(0, Math.abs(E("能量外放")-70)-5)*0.5;
+
+    const L = clamp100(0.35*E("表达条理度")+0.35*E("信息整合度")+0.20*S.指南针+0.10*S.筋骨);
+    const I = clamp100(0.40*E("洞察敏锐度")+0.30*S.镜面+0.20*S.指南针+0.10*E("信息整合度"));
+
+    let X = 0.32*E("落地闭环度")+0.28*E("目标推进力")+0.22*E("应变效率")+0.10*E("改进驱动力")+0.08*S.筋骨;
+    if(E("落地闭环度")<=50) X = Math.min(X, 55);
+    const Xc = clamp100(X);
+
+    const Q = clamp100(0.30*E("协作质量")+0.20*E("信任速度")+0.25*E("表达条理度")+0.15*E("信息整合度")+0.10*S.桥梁 - bandPenaltyConf);
+
+    const SUST = clamp100(0.30*E("节奏管理")+0.25*E("幸福感基础")+0.20*E("关系韧性")+0.15*(E("恢复与再生力")||E("关系韧性"))+0.10*S.盾牌);
+
+    const GROW = clamp100(0.32*E("影响半径")+0.25*E("信任速度")+0.18*E("能量外放")+0.15*E("环境贴合度")+0.10*S.指南针 - penEnergy);
+
+    const RRES = clamp100(0.30*E("关系韧性")+0.25*(E("恢复与再生力")||E("幸福感基础"))+0.20*E("应变效率")+0.15*S.岩石+0.10*S.盾牌 - Math.max(0, H-50)*0.4);
+
+    const Dbase = 0.35*L+0.35*I+0.20*E("信息整合度")+0.10*E("目标推进力");
+    const D = clamp100(Dbase - Math.max(0,H-60)*0.3 - bandPenaltyConf*0.8);
+
+    return { L, I, X: Xc, Q, SUST, GROW, RRES, D };
+  }
+
+  function classifyMaskType(idx, eco16, S8, small, H){
+    const E = (n)=> getE(eco16, n);
+    if(idx.M>=60 && idx.MI>=70 && small.Q>=60 && idx.MC<=65)
+      return {name:"策略型呈现", tips:["明确边界：能做/不能做写清","改口径为“可验证信息”","资料沉淀成模板减少临时包装"]};
+
+    if(idx.M>=60 && idx.MI<=55 && (small.Q<=60 || small.D<=60))
+      return {name:"表演型人格", tips:["使用“预期-进展-结果”回报","减少“热场”频次，先小样后扩散","每次主张配对1个证据"]};
+
+    if(idx.M>=45 && idx.M<60 && idx.MC<=45 && small.Q>=65)
+      return {name:"礼仪型伪装", tips:["关键场景明确真实立场","保持礼貌但不超承诺","必要时写“边界声明”"]};
+
+    if(idx.M>=60 && (E("冲突风格")<50) && (E("关系韧性")<=60))
+      return {name:"求稳压抑", tips:["设置冷静上限≤24h","“事实-感受-请求”三步沟通","做小规模表达训练"]};
+
+    if(idx.M>=70 && idx.MI>=70 && small.Q<=55 && (E("冲突风格")>=75) && ((E("信任速度") - E("协作质量"))>=15))
+      return {name:"权谋/操纵型", tips:["透明化决策过程","接口人制度与两票否决","把反对意见拉到白板上讨论"]};
+
+    if(idx.M>=60 && (E("落地闭环度")<=55) && (E("目标推进力")>=70) && H>=60)
+      return {name:"效率伪装", tips:["每事定义 Done + 上线节奏","WIP 限流≤2","设置72h回滚点"]};
+
+    if(idx.M>=60 && (E("表达条理度")>=70) && (E("信息整合度")<=55) && (E("洞察敏锐度")<=55))
+      return {name:"专业包装", tips:["并列表：事实/解释/猜测","一页摘要替代堆叠PPT","在结论旁边标注证据源"]};
+
+    if(idx.M>=60 && (S8.岩石>=70) && (S8.盾牌<=55) && (E("幸福感基础")<=55))
+      return {name:"英雄主义", tips:["安排“恢复日”","分流任务并允许求援","避免长期透支"]};
+
+    return {name:"轻度伪装/正常呈现", tips:["保持真诚边界","让证据说话","该沉淀的沉淀，降低重复包装"]};
+  }
+
+  function buildMaskSignals(z){
+    const sig = [];
+    if(z.deltaSE>12) sig.push("自评-环境差距偏大");
+    if(z.d_te>10)    sig.push("能量外放高于节奏管理");
+    if(z.d_bq>10)    sig.push("桥梁(结构)高于协作质量");
+    if(z.d_tr>10)    sig.push("信任速度高于关系韧性");
+    if(z.d_ei>8)     sig.push("表达条理度高于信息整合度");
+    if(z.H>=70)      sig.push("高熵场");
+
+    const E=(n)=> getE(z.eco, n);
+    if(E("目标推进力")>=70 && E("落地闭环度")<=55 && z.H>=60) sig.push("效率伪装信号");
+    if(E("表达条理度")>=70 && E("信息整合度")<=55 && E("洞察敏锐度")<=55) sig.push("专业包装信号");
+    if(E("冲突风格")<50 && E("关系韧性")<=60) sig.push("求稳压抑信号");
+    if(z.S8.岩石>=70 && z.S8.盾牌<=55 && E("幸福感基础")<=55) sig.push("英雄主义信号");
+    return sig;
+  }
+
+  function applyMaskingEffects(eco16, maskingResult){
+    const arr = eco16.slice();
+    const set = (name, delta)=>{ const k=ECO_INDEX[name]; arr[k]=clamp100((arr[k]||0)+delta); };
+
+    if(maskingResult.M>=70){
+      set("协作质量",-5);
+      set("关系韧性",-4);
+      set("幸福感基础",-3);
+      if(maskingResult.MI>=70) set("影响半径",+2);
+    }
+    const t = maskingResult.type?.name;
+    if(t==="效率伪装"){ set("落地闭环度",-6); }
+    if(t==="专业包装"){ set("信息整合度",-6); set("表达条理度",-2); }
+    if(t==="英雄主义"){ set("幸福感基础",-6); set("节奏管理",-4); }
+
+    return arr.map(clamp100);
+  }
+
+  function computeMasking({ eco16, structSelf8, structEnv8, entropy }){
+    const E  = (n)=> getE(eco16, n);
+    const H  = Number.isFinite(entropy) ? clamp100(entropy) : entropyFromE16(eco16);
+    const S8 = normalizeStruct(structEnv8);
+    const Sself = normalizeStruct(structSelf8);
+
+    let deltaSE = 0; for(let i=0;i<8;i++){ deltaSE += Math.abs((Sself._arr[i]||0)-(S8._arr[i]||0)); }
+    deltaSE = Math.round(deltaSE/8);
+
+    const d_te = Math.max(0, E("能量外放") - E("节奏管理"));
+    const d_fb = Math.max(0, S8.火焰 - S8.盾牌);
+    const d_bq = Math.max(0, S8.桥梁 - E("协作质量"));
+    const d_tr = Math.max(0, E("信任速度") - E("关系韧性"));
+    const d_ei = Math.max(0, E("表达条理度") - E("信息整合度"));
+    const Hn   = Math.max(0, (H-50)/50);
+
+    const MA = clamp100( 0.35*deltaSE + 0.18*d_tr + 0.16*d_bq + 0.16*d_te + 0.10*d_ei + 0.05*d_fb );
+    const small = calcSmallIndices(eco16, structEnv8, H);
+    const MI = clamp100( 0.28*E("目标推进力") + 0.22*small.D + 0.18*S8.指南针 + 0.16*small.GROW + 0.16*E("落地闭环度") );
+    const MC = clamp100( 0.30*Math.max(0, 70-E("幸福感基础")) + 0.25*Math.max(0, 70-E("节奏管理")) + 0.20*d_fb + 0.15*Hn*100 + 0.10*Math.max(0, 60-E("关系韧性")) );
+
+    const Mbase = 0.45*MA + 0.25*MC + 0.15*Hn*100 + 0.15*((d_ei+d_bq)/2);
+    const M = clamp100( Mbase - 0.12*Math.max(0, MI-65) + 0.08*Math.max(0, 55-MI) );
+
+    const type    = classifyMaskType({M,MA,MI,MC}, eco16, S8, small, H);
+    const signals = (function(){
+      const z = {deltaSE,d_te,d_fb,d_bq,d_tr,d_ei,H,eco:eco16,S8,small};
+      return buildMaskSignals(z);
+    })();
+
+    return { M, MA, MI, MC, small, type, signals };
+  }
+
+  window.MaskCore = { ECO16, ECO_INDEX, entropyFromE16, calcSmallIndices, computeMasking, classifyMaskType, buildMaskSignals, applyMaskingEffects, normalizeStruct };
+})();
+
+/* ========= 差异指数显示适配（挂到现有 recompute 流程） ========= */
+(function MaskDisplayAdapter(){
+  function computeAndRender(vectors){
+    try{
+      const core = window.MaskCore; if(!core) return;
+      const payload = getNS('dashboardUser', {});
+      const eco16 = (vectors && (vectors.eco16||vectors.E16)) || payload.ecology16 || [];
+      const struct_env8 = (vectors && (vectors.struct_env8||vectors.struct8)) || (function(){
+        try{
+          const W = (payload.weights||{s4:0.50,s3:0.30,s2:0.20});
+          const s2_raw = getNS('step2_struct_raw', []) || [];
+          const s3_fix = getNS('step3_struct', []) || [];
+          let s4_core  = getNS('step4_core_struct', null);
+          if(!Array.isArray(s4_core) || s4_core.length!==8){ 
+            s4_core = (Array.isArray(s3_fix)&&s3_fix.length===8) ? s3_fix : (getNS('step1_struct', []) || []); 
+          }
+          function c(x){ x = Number(x)||0; return Math.max(0, Math.min(100, x)); }
+          return Array(8).fill(0).map((_,i)=> Math.round(c(s4_core[i])*W.s4 + c(s3_fix[i])*W.s3 + c(s2_raw[i])*W.s2));
+        }catch(e){ return []; }
+      })();
+      const structSelf8 = (function(){ try{ return getNS('step1_struct', []) || []; }catch(e){ return []; }})();
+      const H = core.entropyFromE16(eco16);
+      const res = core.computeMasking({ eco16, structSelf8, structEnv8: struct_env8, entropy: H });
+
+      const scoreEl = document.getElementById('maskScore');
+      const typeEl  = document.getElementById('maskType');
+      const stripEl = document.getElementById('maskObserveText');
+      if(scoreEl) scoreEl.textContent = String(res.M);
+      if(typeEl)  typeEl.textContent  = '类型：' + (res.type?.name||'—');
+      if(stripEl) stripEl.textContent = `M=${res.M}（MA=${res.MA} / MI=${res.MI} / MC=${res.MC}） · ${res.type?.name||'—'}`;
+
+      try{ setNS('dashboardUser', Object.assign({}, payload, { maskIndex: res })); }catch(e){}
+    }catch(e){ console.warn('mask compute failed', e); }
+  }
+
+  const prev = window.updateDashboardFromVectors;
+  window.updateDashboardFromVectors = function(vectors){
+    try{ computeAndRender(vectors); }catch(e){}
+    // 强制指数墙重算/重绘
+    try{ if (typeof computeAndRenderIndices === 'function') computeAndRenderIndices(vectors, true); }catch(e){}
+    if (typeof prev === 'function') { try{ prev(vectors); }catch(e){} }
+  };
+
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(()=>computeAndRender(), 200); });
+})();
+</script>
+
+<script>
+/* ========= 差异指数 · 详情弹窗 + 标签（仅新增，不改排版） ========= */
+(function MaskDetailOverlay(){
+  const TAGS = [
+    "拿资源","赢单","保面子","稳关系","博曝光","躲责任",
+    "话术包装","术语加密","忙碌展示","人设经营","选择性透明","借权背书",
+    "抢结论","压异议","和稀泥","唱高调","甩锅模糊","转移战场",
+    "公开会","客户场","领导在场","跨部门会上","新人面前","绩效期",
+    "危机现场","复盘会","社交酒局","家庭聚会",
+    "超承诺","反复解释","睡眠差","心累厌班","关系疏离","返工多","冲突升级","用药/饮酒自我镇压"
+  ];
+
+  function openMaskDetail(){
+    try{
+      const core = window.MaskCore || {};
+      const payload = getNS('dashboardUser', {});
+      const res = payload.maskIndex || {};
+      const wrap = document.createElement('div');
+      wrap.id = 'maskDetailOverlay';
+      wrap.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:10000;';
+      const small = res.small||{};
+      const signals = (res.signals||[]).join('、') || '—';
+      wrap.innerHTML = `
+        <div style="width:min(880px,94vw);max-height:86vh;overflow:auto;background:#0f1533;color:#e7efff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.45);padding:18px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px">
+            <h3 style="margin:0">差异指数 · 详情</h3>
+            <div>
+              <button id="maskApplyEffects" class="btn" style="margin-right:8px">轻量投射到生态</button>
+              <button id="maskClose" class="btn">关闭</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+            <div class="card"><div class="card-title">M</div><div class="card-val">${res.M??'—'}</div></div>
+            <div class="card"><div class="card-title">MA 对齐缺口</div><div class="card-val">${res.MA??'—'}</div></div>
+            <div class="card"><div class="card-title">MI 目的性</div><div class="card-val">${res.MI??'—'}</div></div>
+            <div class="card"><div class="card-title">MC 成本</div><div class="card-val">${res.MC??'—'}</div></div>
+          </div>
+          <div style="margin:8px 0 4px;opacity:.9;">小指数（指标体系）</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+            ${['L','I','X','Q','SUST','GROW','RRES','D'].map(k=>`<div class=\"card\"><div class=\"card-title\">${k}</div><div class=\"card-val\">${(small&&small[k])??'—'}</div></div>`).join('')}
+          </div>
+          <div style="margin:10px 0;">主类型：<strong>${res.type?.name||'—'}</strong></div>
+          <div style="margin:10px 0;">信号：${signals}</div>
+          <div style="margin-top:8px;">
+            <div style="margin-bottom:6px;opacity:.85;">可选“伪装标签”（仅解释来源，不加减分）：</div>
+            <div id="maskTags" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+          </div>
+        </div>`;
+      document.body.appendChild(wrap);
+
+      const tagBox = wrap.querySelector('#maskTags');
+      const picked = (function(){ try{ return getNS('mask_tags', []) || []; }catch(e){ return []; }})();
+      TAGS.forEach(name=>{
+        const on = picked.includes(name);
+        const chip = document.createElement('span');
+        chip.textContent = name;
+        chip.style.cssText = `cursor:pointer;padding:6px 10px;border-radius:999px;border:1px solid ${on?'#60a5fa':'#334155'};background:${on?'rgba(96,165,250,.15)':'#0b1120'};`;
+        chip.addEventListener('click',()=>{
+          let cur = (function(){ try{ return getNS('mask_tags', []) || []; }catch(e){ return []; } })();
+          if(cur.includes(name)) cur = cur.filter(x=>x!==name); else cur.push(name);
+          try{ localStorage.setItem(getNamespacedKey('mask_tags'), JSON.stringify(cur)); }catch(e){}
+          chip.style.borderColor = cur.includes(name)?'#60a5fa':'#334155';
+          chip.style.background = cur.includes(name)?'rgba(96,165,250,.15)':'#0b1120';
+        });
+        tagBox.appendChild(chip);
+      });
+
+      wrap.querySelector('#maskClose').addEventListener('click',()=>{ try{ document.body.removeChild(wrap); }catch(e){} });
+      wrap.addEventListener('click', (e)=>{ if(e.target===wrap){ try{ document.body.removeChild(wrap); }catch(err){} } });
+      document.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ try{ document.body.removeChild(wrap); }catch(err){} document.removeEventListener('keydown', esc); } });
+
+      const applyBtn = wrap.querySelector('#maskApplyEffects');
+      if(applyBtn){
+        applyBtn.addEventListener('click',()=>{
+          try{
+            const p = getNS('dashboardUser', {});
+            const eco = p.ecology16||[];
+            if(Array.isArray(eco) && eco.length){
+              const masked = (window.MaskCore && window.MaskCore.applyMaskingEffects) ? window.MaskCore.applyMaskingEffects(eco, res) : eco.slice();
+              const next = Object.assign({}, p, { ecology16Masked: masked });
+              setNS('dashboardUser', next);
+              try{ window.dispatchEvent(new CustomEvent('mask:effectsApplied', {detail:{ecology16Masked:masked, masking:res}})); }catch(e){}
+              applyBtn.textContent = '已投射（已保存到 ecology16Masked）';
+            }
+          }catch(err){ console.warn(err); }
+        });
+      }
+    }catch(e){ console.warn('open mask detail failed', e); }
+  }
+
+  document.addEventListener('click', (e)=>{ if(e.target && e.target.id==='maskDetailBtn'){ openMaskDetail(); }});
+})();
+</script>
+
+
+<script>
+  // 渲染指数墙（唯一实现）
+  function renderIndicesWall(indices){
+    const grid = document.getElementById('indicesGrid');
+    if(!grid){ console.warn('indicesGrid not found'); return; }
+    grid.innerHTML = '';
+    // 添加display_order兜底配置，解决圆周指数不显示问题
+    const displayOrder = (indicesConfig?.ui?.display_order) || 
+      ['difference','kernel_stability','self_integration','circularity_struct','circularity_pot','perfection','confidence'];
+    const order = displayOrder;
+    const nameMap = {
+      difference:'差异指数',
+      kernel_stability:'核稳定指数',
+      self_integration:'自我整合指数',
+      circularity_struct:'结构均衡指数',
+      circularity_pot:'潜力均衡指数',
+      perfection:'完整指数',
+      confidence:'自信指数'
+    };
+    const descMap = {
+      difference:'自评与环境的差异程度，低差异更稳定',
+      kernel_stability:'核心维度在生态中的稳态程度',
+      self_integration:'多源信息的一致性与整合度',
+      circularity_struct:'结构八维的均衡程度',
+      circularity_pot:'潜力八维的均衡程度',
+      perfection:'关键维度覆盖与短板情况',
+      confidence:'目标推进与影响半径的综合表现'
+    };
+    function getColor(v){
+      const x=Math.max(0,Math.min(100,Number(v)||0));
+      return x>=75? 'linear-gradient(90deg,#34d399,#10b981)' : x>=50? 'linear-gradient(90deg,#6c8cff,#9aaeff)' : 'linear-gradient(90deg,#ff5c9a,#ff7fb2)';
+    }
+    function makeCard(key, obj){
+      const isLow = obj && obj.reliability === 'low';
+      const val = (obj && typeof obj.value==='number')? Math.round(obj.value) : (typeof obj==='number'? Math.round(obj): 0);
+      const card = document.createElement('div');
+      card.className = 'index-card' + (isLow? ' low-confidence':'');
+      const color = getColor(val);
+      const name = nameMap[key] || key;
+      const desc = descMap[key] || '';
+      const short = isLow? '数据不足' : '可靠';
+      const percentage = Math.max(0,Math.min(100,val));
+      card.innerHTML = `
+        <div class="index-header">
+          <div class="index-name">${name}</div>
+          <div class="index-short">${short}</div>
+        </div>
+        <div class="index-value" style="color:#e7ecff">${percentage.toFixed(0)}</div>
+        <div class="index-bar"><div class="index-bar-fill" style="width:${percentage}%;background:${color}"></div></div>
+        <div class="index-desc">${desc}</div>
+      `;
+      if(isLow){
+        const badge = document.createElement('div');
+        badge.className = 'data-source-badge';
+        const needMap = {
+          'circularity_struct': 'struct8',
+          'circularity_pot': 'pot8', 
+          'perfection': 'struct8'
+        };
+        const need = (obj && obj.needed) || needMap[key] || '更多数据';
+        badge.innerHTML = `<span class="badge-icon">!</span><span class="badge-text">需要：${need}</span>`;
+        card.appendChild(badge);
+      }
+      grid.appendChild(card);
+    }
+    order.forEach(k=>{ if(indices && k in indices) makeCard(k, indices[k]); });
+  }
+
+  // 配置加载器（唯一实现，支持DEFAULT_CONFIG回退）
+  let indicesConfig = window.indicesConfig || null;
+  async function loadIndicesConfig(){
+    try{
+      if(indicesConfig) return true;
+      const res = await fetch('./config/indices.config.json');
+      if(res && res.ok){
+        indicesConfig = await res.json();
+        window.indicesConfig = indicesConfig;
+        return true;
+      }
+      console.warn('indices.config.json not available, using DEFAULT_CONFIG if present');
+      if(window.IndicesCalculator && window.IndicesCalculator.DEFAULT_CONFIG){
+        indicesConfig = window.IndicesCalculator.DEFAULT_CONFIG;
+        window.indicesConfig = indicesConfig;
+        return true;
+      }
+      return false;
+    }catch(e){
+      console.warn('loadIndicesConfig failed', e);
+      if(window.IndicesCalculator && window.IndicesCalculator.DEFAULT_CONFIG){
+        indicesConfig = window.IndicesCalculator.DEFAULT_CONFIG;
+        window.indicesConfig = indicesConfig;
+        return true;
+      }
+      return false;
+    }
+  }
+
+
+  // 渲染标记，防止重复触发
+  let indicesRendered = false;
+
+  async function computeAndRenderIndices(vectors, forceRender = false) {
+    // 防重复渲染检查
+    if (indicesRendered && !forceRender) {
+      console.log('Indices already rendered, skipping duplicate call');
+      return;
+    }
+
+    if (!indicesConfig) {
+      const loaded = await loadIndicesConfig();
+      if (!loaded) {
+        if (window.IndicesCalculator && window.IndicesCalculator.DEFAULT_CONFIG) {
+          indicesConfig = window.IndicesCalculator.DEFAULT_CONFIG;
+        } else {
+          console.warn('Indices config not available and no DEFAULT_CONFIG; skipping indices rendering');
+          return;
+        }
+      }
+    }
+
+    if (!window.IndicesCalculator) {
+      console.warn('IndicesCalculator not available');
+      return;
+    }
+
+    try {
+      // 准备数据
+      const data = prepareIndicesData(vectors);
+      
+      // 计算指数
+      const indices = window.IndicesCalculator.computeAllIndices(data, indicesConfig);
+      
+      // 统一键名：差异指数别名映射
+      if (indices.masking && !indices.difference) indices.difference = indices.masking;
+      
+      // 兼容 UI 旧键名：完整指数键名映射
+      if (indices.completeness && !indices.perfection) {
+        indices.perfection = indices.completeness;
+      }
+      
+      // 渲染指数墙
+      renderIndicesWall(indices);
+      
+      // 标记已渲染
+      indicesRendered = true;
+      console.log('Indices wall rendered successfully');
+      
+      // 保存到localStorage
+      try {
+        const payload = getNS('dashboardUser', {});
+        payload.indices = { latest: indices, timestamp: Date.now() };
+        setNS('dashboardUser', payload);
+        
+        // 同时保存到PSYS存储系统
+        if (window.PSYS && typeof window.PSYS.saveIndices === 'function') {
+          window.PSYS.saveIndices(indices);
+        }
+      } catch (e) {
+        console.warn('Failed to save indices to localStorage:', e);
+      }
+      
+    } catch (e) {
+      console.error('Failed to compute indices:', e);
+    }
+  }
+
+  // 准备指数计算所需的数据
+  function prepareIndicesData(vectors) {
+    // 获取Big Five数据
+    const bfData = loadBigFiveData();
+    const weightMode = document.getElementById('weightMode')?.value || 'balanced';
+    const bf_self = bfData.step1_bf || [50, 50, 50, 50, 50];
+    const bf_env = synthesizeBigFive(bfData, weightMode) || [50, 50, 50, 50, 50];
+
+    // 获取各步骤的Big Five环境数据
+    const bf_s2 = bfData.step2_bf_env || [50, 50, 50, 50, 50];
+    const bf_s3 = bfData.step3_bf_env || [50, 50, 50, 50, 50];
+    const bf_s4 = bfData.step4_bf_env || [50, 50, 50, 50, 50];
+
+    // 获取结构8和潜力8数据，缺失时返回null交由计算器降置信度
+    let struct8 = vectors?.struct_env8 || vectors?.struct8;
+    if (!Array.isArray(struct8) || struct8.length !== 8) struct8 = null;
+
+    let pot8 = vectors?.pot_env8 || vectors?.pot8;
+    if (!Array.isArray(pot8) || pot8.length !== 8) pot8 = null;
+    
+    // 保持_computed标记，确保计算得出的数据不被误判为默认值
+    if (struct8 && (vectors?.struct_env8?._computed || vectors?.struct8?._computed)) {
+      struct8._computed = true;
+    }
+    if (pot8 && (vectors?.pot_env8?._computed || vectors?.pot8?._computed)) {
+      pot8._computed = true;
+    }
+    
+    // 为 pot8 添加 __names__ 属性以支持指数计算
+    if (pot8 && Array.isArray(pot8)) {
+      pot8.__names__ = ["创新潜力","领导潜力","艺术潜力","学习潜力","社交潜力","创业潜力","科研潜力","幸福潜力"];
+    }
+
+    // 获取生态16数据（用于某些指数计算），提供安全兜底
+    let eco16 = vectors?.eco16 || vectors?.E16;
+    if (!Array.isArray(eco16) || eco16.length !== 16) eco16 = Array(16).fill(50);
+
+    return {
+      bf_self,
+      bf_env,
+      bf_s2,
+      bf_s3,
+      bf_s4,
+      struct_env8: struct8,
+      struct8, // 兼容字段
+      pot_env8: pot8, // 兼容字段
+      pot8,
+      eco16
+    };
+  }
+
+  // 初始化指数墙交互
+  function initIndicesWallInteraction() {
+    const toggle = document.getElementById('indicesToggle');
+    const wall = document.getElementById('indicesWall');
+    
+    if (toggle && wall) {
+      toggle.addEventListener('click', function() {
+        wall.classList.toggle('indices-collapsed');
+        toggle.textContent = wall.classList.contains('indices-collapsed') ? '展开 ▼' : '收起 ▲';
+      });
+    }
+
+    // 添加 weights:recomputed 事件监听器，确保指数墙在任何重算后都能更新
+    window.addEventListener('weights:recomputed', () => {
+      console.log('Received weights:recomputed event, refreshing indices wall');
+      computeAndRenderIndices(null, true); // 用缓存/最新向量重算并覆盖
+    });
+  }
+
+  // 集成到现有的数据更新流程（精简：不在此处直接触发指数渲染）
+  const prevUpdateDashboard = window.updateDashboardFromVectors;
+  window.updateDashboardFromVectors = function(vectors) {
+    // 调用原有的更新函数
+    if (typeof prevUpdateDashboard === 'function') {
+      try { prevUpdateDashboard(vectors); } catch (e) { console.warn('Previous dashboard update failed:', e); }
+    }
+    // 确保每次都触发指数重新计算和渲染
+    try {
+      computeAndRenderIndices(vectors);
+    } catch (e) {
+      console.warn('Indices computation failed:', e);
+    }
+  };
+
+  // 统一的 fallback 缓存兜底函数
+  function tryFallbackRender() {
+    console.log('Attempting fallback render from cached data');
+    try {
+      // 使用安全的键名获取，避免跨脚本块的作用域问题
+      const getKey = (baseKey) => {
+        if (!window.PSYS) return baseKey;
+        const NS = window.PSYS.NS;
+        const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`) || 'null');
+        if (!meta) return baseKey;
+        return `${baseKey}:${meta.teamId}:${meta.userId}:${meta.runId}`;
+      };
+      
+      const payload = JSON.parse(localStorage.getItem(getKey('dashboardUser')) || '{}');
+      if (payload.ecology16 || payload.struct8 || payload.pot8) {
+        console.log('Found cached data, rendering indices with fallback');
+        computeAndRenderIndices({
+          eco16: payload.ecology16,
+          struct8: payload.struct8,
+          pot8: payload.pot8
+        }, true); // 强制渲染，因为这是兜底逻辑
+      } else {
+        console.warn('No cached data available for fallback render');
+      }
+    } catch (e) {
+      console.error('Fallback render failed:', e);
+    }
+  }
+
+  // 初始化
+  document.addEventListener('DOMContentLoaded', function() {
+    initIndicesWallInteraction();
+    // 先回灌会话数据到本地命名空间键
+    try { if (typeof hydrateFromSession === 'function') hydrateFromSession(); } catch (e) { console.warn('hydrateFromSession failed:', e); }
+    // 延迟加载配置和计算指数
+    setTimeout(async () => {
+      await loadIndicesConfig();
+      // 使用全局暴露的 recomputeAll 来获取当前用户的实时数据
+      if (window.__recomputeAll__) {
+        window.__recomputeAll__();  // 统一走同一个重算
+      } else {
+        console.warn('__recomputeAll__ not available, trying fallback');
+        tryFallbackRender();
+      }
+    }, 300);
+  });
+</script>
+
+
+<script>
+(function(){
+  const NS='psys:v1';
+  function qs(k){
+    const u=new URL(location.href);
+    return u.searchParams.get(k);
+  }
+  function setMetaFromUrl(){
+    const teamId=qs('teamId'), userId=qs('userId'), runId=qs('runId');
+    if(teamId && userId && runId){
+      sessionStorage.setItem(`${NS}:currentSession`, JSON.stringify({teamId,userId,runId}));
+      return true;
+    }
+    return false;
+  }
+  function getMeta(){
+    try{
+      const raw=sessionStorage.getItem(`${NS}:currentSession`);
+      return raw?JSON.parse(raw):null;
+    }catch{ return null; }
+  }
+  setMetaFromUrl();
+  const meta=getMeta();
+  if(!meta){
+    // redirect to hub for clean entry
+    console.warn('No current session; redirecting to hub.html');
+    location.href = 'hub.html';
+    return;
+  }
+  // mount a small corner badge
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;top:8px;left:8px;background:#0e1633;border:1px solid #1c2447;color:#e7ecff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+  div.textContent='团队/成员已关联 · 安全会话';
+  document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+
+  // Provide manual hooks
+  window.psysMarkStepCompleted = function(partName){
+    if(!window.PSYS){ console.warn('PSYS not loaded'); return; }
+    PSYS.saveStep(partName, {manual:true, savedAt: new Date().toISOString()});
+  };
+})();
+</script>
+
+</body>
+
+</html>

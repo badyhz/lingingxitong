@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Step 2 · 200 标签（v6n·修复ID唯一）</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1020;--card:#121833;--ink:#e7ecff;--muted:#98a1c0;--brand:#6c8cff;--line:#1c2447}
+*{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1430);color:var(--ink);font-family:'Noto Sans SC',system-ui}
+.wrap{max-width:1300px;margin:22px auto 80px;padding:14px}
+.h1{font-size:26px;font-weight:700;margin:6px 0 12px}
+.card{background:linear-gradient(180deg,#121833,#0f1733);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.btn{padding:8px 14px;border-radius:8px;background:#6c8cff;color:#fff;margin-right:6px;text-decoration:none;border:1px solid #7a95ff;cursor:pointer}
+.btn.ghost{background:transparent;color:#cbd5ff;border-color:#4056a8}
+.pill{padding:4px 10px;border:1px solid #2a3b7a;border-radius:12px;font-size:12px;color:#c9d4ff}
+.row{display:grid;grid-template-columns: minmax(560px,1fr) 320px; gap:16px; align-items:start}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.q{padding:14px;border:1px solid #2a3b7a;border-radius:14px;background:#0c1433;transition:transform .08s ease, border-color .2s ease;cursor:pointer;user-select:none}
+.q.active{border-color:#6c8cff;transform:translateY(-1px)}
+.kv{display:flex;justify-content:space-between;align-items:center;color:#a8b3e6;font-size:12px}
+.chips{display:grid;grid-template-columns:1fr;gap:10px}
+.chip{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #2a3b7a;border-radius:12px;background:#0c1433;cursor:pointer;user-select:none}
+.chip.active{background:#1a244f;border-color:#5a76dd}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+#debug{margin-top:10px;font-size:12px;color:#9fb0ff;white-space:pre-wrap}
+.sticky{position:sticky; top:12px}
+.preview-box{margin-top:12px;padding:12px;border:1px solid #2a3b7a;border-radius:12px;background:#0c1433}
+.bf-bar{display:flex;align-items:center;margin:4px 0}
+.bf-label{width:80px;font-size:12px;color:#c9d4ff}
+.bf-value{flex:1;height:8px;background:#1a244f;border-radius:4px;margin:0 8px;position:relative}
+.bf-fill{height:100%;background:linear-gradient(90deg,#6c8cff,#9aaeff);border-radius:4px}
+.bf-num{width:30px;font-size:12px;color:#e7ecff;text-align:right}
+</style>  <script src="./storage.js"></script>
+  <script src="./bf_mappings.js"></script>
+  <script>
+/* === 命名空间工具：提前定义，避免 TDZ === */
+function getNamespacedKey(baseKey){
+  const NS = (window.PSYS && PSYS.NS) || 'psys:v1';
+  const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`) || 'null');
+  return meta ? `${baseKey}:${meta.teamId}:${meta.userId}:${meta.runId}` : baseKey;
+}
+function getNS(k, fallback=null){
+  try {
+    const raw = localStorage.getItem(getNamespacedKey(k));
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+function setNS(k, v){
+  localStorage.setItem(getNamespacedKey(k), JSON.stringify(v));
+}
+/* 保留一个字符串常量（有些地方要读这个） */
+const NS_STR = (window.PSYS && PSYS.NS) || 'psys:v1';
+</script>
+</head><body><div class="wrap">
+<div class="h1">Step 2 · 新版 200 个环境标签（v6n）</div>
+<div class="card">
+  <div class="row">
+    <div>
+      <div class="kv"><span>标签选择</span><span id="selMeta" class="pill">已选：0 / 200</span></div>
+      <div id="tagGrid" class="grid"></div>
+    </div>
+    <div class="sticky">
+      <div class="kv" style="margin-bottom:6px"><span>分类（点击切换）</span></div>
+      <div class="chips" id="chips"></div>
+      <div class="meta">
+        <span class="pill" id="catName">当前：全部</span>
+        <button class="btn" id="btnRandomFill" style="background:#ff6b6b;border-color:#ff7979">随机选择标签</button>
+        <button class="btn ghost" id="btnClear">清除全部标签</button>
+        <button class="btn" id="btnSave">保存并前往 Step 3</button>
+        <button class="btn" id="btnSaveHub">保存并返回 Hub</button>
+        <button class="btn" id="btnStep1">保存并前往 Step 1</button>
+        <button class="btn" id="btnStep4">保存并前往 Step 4</button>
+        <a class="btn" href="dashboard_linked.html">仅查看 Dashboard</a>
+      </div>
+      
+      <!-- Big Five 预览 -->
+      <div class="preview-box">
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;color:#e7ecff">Big Five 环境画像预览</div>
+        <div id="bfPreview">
+          <div class="bf-bar">
+            <div class="bf-label">开放性(O)</div>
+            <div class="bf-value"><div class="bf-fill" style="width:50%"></div></div>
+            <div class="bf-num">50</div>
+          </div>
+          <div class="bf-bar">
+            <div class="bf-label">尽责性(C)</div>
+            <div class="bf-value"><div class="bf-fill" style="width:50%"></div></div>
+            <div class="bf-num">50</div>
+          </div>
+          <div class="bf-bar">
+            <div class="bf-label">外向性(E)</div>
+            <div class="bf-value"><div class="bf-fill" style="width:50%"></div></div>
+            <div class="bf-num">50</div>
+          </div>
+          <div class="bf-bar">
+            <div class="bf-label">宜人性(A)</div>
+            <div class="bf-value"><div class="bf-fill" style="width:50%"></div></div>
+            <div class="bf-num">50</div>
+          </div>
+          <div class="bf-bar">
+            <div class="bf-label">神经质(N)</div>
+            <div class="bf-value"><div class="bf-fill" style="width:50%"></div></div>
+            <div class="bf-num">50</div>
+          </div>
+        </div>
+      </div>
+      <div id="debug" class="card" style="margin-top:12px">debug: 正常 | 唯一ID: 200</div>
+    </div>
+  </div>
+</div>
+<script>
+// Kill duplicate script
+if(!window.__STEP2_V6N_LOADED){ window.__STEP2_V6N_LOADED = true; } else { throw new Error('脚本重复加载被阻止'); }
+
+const TAGS = [
+    // 行业职业类
+    {"id": "T001", "category": "行业职业", "name": "科技互联网"}, 
+    {"id": "T002", "category": "行业职业", "name": "金融理财"}, 
+    {"id": "T003", "category": "行业职业", "name": "制造生产"}, 
+    {"id": "T004", "category": "行业职业", "name": "教育培训"}, 
+    {"id": "T005", "category": "行业职业", "name": "医疗健康"}, 
+    {"id": "T006", "category": "行业职业", "name": "艺术创意"}, 
+    {"id": "T007", "category": "行业职业", "name": "政府机关"}, 
+    {"id": "T008", "category": "行业职业", "name": "公益组织"}, 
+    {"id": "T009", "category": "行业职业", "name": "商贸零售"}, 
+    {"id": "T010", "category": "行业职业", "name": "体育运动"}, 
+    {"id": "T011", "category": "行业职业", "name": "媒体传播"}, 
+    {"id": "T012", "category": "行业职业", "name": "法律服务"}, 
+    {"id": "T013", "category": "行业职业", "name": "农林牧渔"}, 
+    {"id": "T014", "category": "行业职业", "name": "房地产"}, 
+    {"id": "T015", "category": "行业职业", "name": "咨询服务"}, 
+    {"id": "T016", "category": "行业职业", "name": "娱乐影视"}, 
+    {"id": "T017", "category": "行业职业", "name": "游戏开发"}, 
+    {"id": "T018", "category": "行业职业", "name": "公益慈善"}, 
+    {"id": "T019", "category": "行业职业", "name": "环保绿色"}, 
+    {"id": "T020", "category": "行业职业", "name": "创业公司"}, 
+    {"id": "T021", "category": "职位层级", "name": "高层管理"}, 
+    {"id": "T022", "category": "职位层级", "name": "中层管理"}, 
+    {"id": "T023", "category": "职位层级", "name": "项目经理"}, 
+    {"id": "T024", "category": "职位层级", "name": "基层员工"}, 
+    {"id": "T025", "category": "职位层级", "name": "创意设计"}, 
+    {"id": "T026", "category": "职位层级", "name": "技术开发"}, 
+    {"id": "T027", "category": "职位层级", "name": "销售业务"}, 
+    {"id": "T028", "category": "职位层级", "name": "客户服务"}, 
+    {"id": "T029", "category": "职位层级", "name": "行政后勤"}, 
+    {"id": "T030", "category": "职位层级", "name": "专业顾问"}, 
+    {"id": "T031", "category": "职位层级", "name": "医护人员"}, 
+    {"id": "T032", "category": "职位层级", "name": "教师讲师"}, 
+    {"id": "T033", "category": "职位层级", "name": "研究学者"}, 
+    {"id": "T034", "category": "职位层级", "name": "艺术创作"}, 
+    {"id": "T035", "category": "职位层级", "name": "工程技术"}, 
+    {"id": "T036", "category": "职位层级", "name": "运输物流"}, 
+    {"id": "T037", "category": "职位层级", "name": "自由职业"}, 
+    {"id": "T038", "category": "职位层级", "name": "公务员"}, 
+    {"id": "T039", "category": "职位层级", "name": "志愿工作"}, 
+    {"id": "T040", "category": "职位层级", "name": "全职家长"}, 
+    
+    // 人生经历类
+    {"id": "T041", "category": "重要经历", "name": "创业失败"}, 
+    {"id": "T042", "category": "重要经历", "name": "创业成功"}, 
+    {"id": "T043", "category": "重要经历", "name": "职场晋升"}, 
+    {"id": "T044", "category": "重要经历", "name": "失业挫折"}, 
+    {"id": "T045", "category": "重要经历", "name": "留学深造"}, 
+    {"id": "T046", "category": "重要经历", "name": "海外工作"}, 
+    {"id": "T047", "category": "重要经历", "name": "感情分离"}, 
+    {"id": "T048", "category": "重要经历", "name": "步入婚姻"}, 
+    {"id": "T049", "category": "重要经历", "name": "为人父母"}, 
+    {"id": "T050", "category": "重要经历", "name": "亲人离世"}, 
+    {"id": "T051", "category": "重要经历", "name": "健康挑战"}, 
+    {"id": "T052", "category": "重要经历", "name": "康复重生"}, 
+    {"id": "T053", "category": "重要经历", "name": "关系破裂"}, 
+    {"id": "T054", "category": "重要经历", "name": "异地生活"}, 
+    {"id": "T055", "category": "重要经历", "name": "搬家迁移"}, 
+    {"id": "T056", "category": "重要经历", "name": "长途旅行"}, 
+    {"id": "T057", "category": "重要经历", "name": "间隔休整"}, 
+    {"id": "T058", "category": "重要经历", "name": "军旅生涯"}, 
+    {"id": "T059", "category": "重要经历", "name": "灾难经历"}, 
+    {"id": "T060", "category": "重要经历", "name": "志愿服务"}, 
+    {"id": "T061", "category": "重要经历", "name": "照护责任"}, 
+    {"id": "T062", "category": "重要经历", "name": "移民定居"}, 
+    {"id": "T063", "category": "重要经历", "name": "重要考试"}, 
+    {"id": "T064", "category": "重要经历", "name": "项目成功"}, 
+    {"id": "T065", "category": "重要经历", "name": "家业传承"}, 
+    {"id": "T066", "category": "重要经历", "name": "意外事故"}, 
+    {"id": "T067", "category": "重要经历", "name": "财务变化"}, 
+    {"id": "T068", "category": "重要经历", "name": "事业转型"}, 
+    {"id": "T069", "category": "重要经历", "name": "公众关注"}, 
+    {"id": "T070", "category": "重要经历", "name": "隐退生活"}, 
+    
+    // 成长背景类
+    {"id": "T071", "category": "成长环境", "name": "大城市"}, 
+    {"id": "T072", "category": "成长环境", "name": "小城镇"}, 
+    {"id": "T073", "category": "成长环境", "name": "农村乡镇"}, 
+    {"id": "T074", "category": "家庭条件", "name": "富裕家庭"}, 
+    {"id": "T075", "category": "家庭条件", "name": "中等家庭"}, 
+    {"id": "T076", "category": "家庭条件", "name": "困难家庭"}, 
+    {"id": "T077", "category": "教育资源", "name": "优质教育"}, 
+    {"id": "T078", "category": "教育资源", "name": "普通教育"}, 
+    {"id": "T079", "category": "成长环境", "name": "国际背景"}, 
+    {"id": "T080", "category": "家庭结构", "name": "单亲家庭"}, 
+    {"id": "T081", "category": "家庭结构", "name": "多子女"}, 
+    {"id": "T082", "category": "家庭结构", "name": "独生子女"}, 
+    {"id": "T083", "category": "家庭背景", "name": "家族企业"}, 
+    {"id": "T084", "category": "家庭背景", "name": "农业家庭"}, 
+    {"id": "T085", "category": "家庭背景", "name": "工人家庭"}, 
+    {"id": "T086", "category": "家庭背景", "name": "白领家庭"}, 
+    {"id": "T087", "category": "家庭背景", "name": "知识分子"}, 
+    {"id": "T088", "category": "家庭背景", "name": "宗教家庭"}, 
+    {"id": "T089", "category": "家庭背景", "name": "城市世家"}, 
+    {"id": "T090", "category": "家庭背景", "name": "迁徙家庭"}, 
+    {"id": "T091", "category": "家庭背景", "name": "上升家庭"}, 
+    {"id": "T092", "category": "家庭背景", "name": "政治家庭"}, 
+    {"id": "T093", "category": "家庭背景", "name": "艺术家庭"}, 
+    {"id": "T094", "category": "家庭背景", "name": "商业家庭"}, 
+    {"id": "T095", "category": "家庭背景", "name": "环保家庭"}, 
+    
+    // 生活方式类
+    {"id": "T096", "category": "消费习惯", "name": "节约储蓄"}, 
+    {"id": "T097", "category": "消费习惯", "name": "理财投资"}, 
+    {"id": "T098", "category": "消费习惯", "name": "品质消费"}, 
+    {"id": "T099", "category": "消费习惯", "name": "极简生活"}, 
+    {"id": "T100", "category": "兴趣爱好", "name": "健身运动"}, 
+    {"id": "T101", "category": "兴趣爱好", "name": "旅游探索"}, 
+    {"id": "T102", "category": "兴趣爱好", "name": "科技数码"}, 
+    {"id": "T103", "category": "兴趣爱好", "name": "文艺创作"}, 
+    {"id": "T104", "category": "兴趣爱好", "name": "美食品鉴"}, 
+    {"id": "T105", "category": "兴趣爱好", "name": "娱乐追星"}, 
+    {"id": "T106", "category": "消费习惯", "name": "网购达人"}, 
+    {"id": "T107", "category": "消费习惯", "name": "实体购物"}, 
+    {"id": "T108", "category": "兴趣爱好", "name": "收藏爱好"}, 
+    {"id": "T109", "category": "消费习惯", "name": "投机冒险"}, 
+    {"id": "T110", "category": "消费习惯", "name": "家庭优先"}, 
+    {"id": "T111", "category": "消费习惯", "name": "环保消费"}, 
+    {"id": "T112", "category": "兴趣爱好", "name": "手工制作"}, 
+    {"id": "T113", "category": "消费习惯", "name": "品牌忠实"}, 
+    {"id": "T114", "category": "消费习惯", "name": "价格敏感"}, 
+    {"id": "T115", "category": "消费习惯", "name": "社交消费"}, 
+    {"id": "T116", "category": "消费习惯", "name": "低欲望"}, 
+    {"id": "T117", "category": "消费习惯", "name": "教育投资"}, 
+    {"id": "T118", "category": "消费习惯", "name": "文化消费"}, 
+    {"id": "T119", "category": "消费习惯", "name": "理财规划"}, 
+    {"id": "T120", "category": "消费习惯", "name": "享乐主义"}, 
+    
+    // 社交特征类
+    {"id": "T121", "category": "社交方式", "name": "广泛社交"}, 
+    {"id": "T122", "category": "社交方式", "name": "深度交友"}, 
+    {"id": "T123", "category": "社交方式", "name": "网络活跃"}, 
+    {"id": "T124", "category": "社交方式", "name": "线下聚会"}, 
+    {"id": "T125", "category": "社交圈子", "name": "跨界交友"}, 
+    {"id": "T126", "category": "社交圈子", "name": "同行交流"}, 
+    {"id": "T127", "category": "社交圈子", "name": "多元文化"}, 
+    {"id": "T128", "category": "社交方式", "name": "社交内向"}, 
+    {"id": "T129", "category": "社交圈子", "name": "圈子稳定"}, 
+    {"id": "T130", "category": "社交圈子", "name": "圈子多变"}, 
+    {"id": "T131", "category": "社交能力", "name": "人脉达人"}, 
+    {"id": "T132", "category": "社交能力", "name": "人脉一般"}, 
+    {"id": "T133", "category": "社交动机", "name": "社交驱动"}, 
+    {"id": "T134", "category": "社交动机", "name": "独立自主"}, 
+    {"id": "T135", "category": "社交圈子", "name": "跨代交友"}, 
+    {"id": "T136", "category": "社交圈子", "name": "同龄交友"}, 
+    {"id": "T137", "category": "社交方式", "name": "群体活跃"}, 
+    {"id": "T138", "category": "社交方式", "name": "聚会达人"}, 
+    {"id": "T139", "category": "社交方式", "name": "平台多样"}, 
+    {"id": "T140", "category": "社交方式", "name": "平台专一"}, 
+    {"id": "T141", "category": "社交圈子", "name": "跨地域"}, 
+    {"id": "T142", "category": "社交圈子", "name": "本地化"}, 
+    {"id": "T143", "category": "社交方式", "name": "消费社交"}, 
+    {"id": "T144", "category": "社交方式", "name": "工作社交"}, 
+    {"id": "T145", "category": "社交方式", "name": "独处偏好"}, 
+    
+    // 时间管理类
+    {"id": "T146", "category": "时间分配", "name": "工作狂人"}, 
+    {"id": "T147", "category": "时间分配", "name": "学习达人"}, 
+    {"id": "T148", "category": "时间分配", "name": "家庭时光"}, 
+    {"id": "T149", "category": "时间分配", "name": "社交达人"}, 
+    {"id": "T150", "category": "时间分配", "name": "娱乐爱好"}, 
+    {"id": "T151", "category": "时间分配", "name": "运动健身"}, 
+    {"id": "T152", "category": "时间分配", "name": "独处思考"}, 
+    {"id": "T153", "category": "时间分配", "name": "公益服务"}, 
+    {"id": "T154", "category": "时间分配", "name": "旅行探索"}, 
+    {"id": "T155", "category": "生活节奏", "name": "平衡生活"}, 
+    {"id": "T156", "category": "生活节奏", "name": "夜猫子"}, 
+    {"id": "T157", "category": "生活节奏", "name": "规律作息"}, 
+    {"id": "T158", "category": "工作方式", "name": "冲刺型"}, 
+    {"id": "T159", "category": "工作方式", "name": "稳定型"}, 
+    {"id": "T160", "category": "工作方式", "name": "跳槽频繁"}, 
+    {"id": "T161", "category": "工作方式", "name": "长期稳定"}, 
+    {"id": "T162", "category": "时间分配", "name": "娱乐过度"}, 
+    {"id": "T163", "category": "时间分配", "name": "自律学习"}, 
+    {"id": "T164", "category": "工作方式", "name": "效率偏低"}, 
+    {"id": "T165", "category": "工作方式", "name": "多任务"}, 
+    {"id": "T166", "category": "工作方式", "name": "专注单一"}, 
+    {"id": "T167", "category": "时间分配", "name": "照护家人"}, 
+    {"id": "T168", "category": "工作方式", "name": "项目频繁"}, 
+    {"id": "T169", "category": "工作方式", "name": "项目稳定"}, 
+    {"id": "T170", "category": "生活方式", "name": "多重身份"}, 
+    
+    // 性格特质类
+    {"id": "T171", "category": "性格特质", "name": "奋斗拼搏"}, 
+    {"id": "T172", "category": "性格特质", "name": "探索创新"}, 
+    {"id": "T173", "category": "性格特质", "name": "守护责任"}, 
+    {"id": "T174", "category": "性格特质", "name": "艺术气质"}, 
+    {"id": "T175", "category": "性格特质", "name": "人际连接"}, 
+    {"id": "T176", "category": "性格特质", "name": "规划有序"}, 
+    {"id": "T177", "category": "性格特质", "name": "独立自主"}, 
+    {"id": "T178", "category": "性格特质", "name": "修复治愈"}, 
+    {"id": "T179", "category": "性格特质", "name": "深度思考"}, 
+    {"id": "T180", "category": "性格特质", "name": "领导引导"}, 
+    {"id": "T181", "category": "性格特质", "name": "享受当下"}, 
+    {"id": "T182", "category": "性格特质", "name": "创业精神"}, 
+    {"id": "T183", "category": "性格特质", "name": "哲学思辨"}, 
+    {"id": "T184", "category": "性格特质", "name": "关怀照顾"}, 
+    {"id": "T185", "category": "性格特质", "name": "行动执行"}, 
+    {"id": "T186", "category": "性格特质", "name": "理想主义"}, 
+    {"id": "T187", "category": "性格特质", "name": "实用主义"}, 
+    {"id": "T188", "category": "性格特质", "name": "冒险探险"}, 
+    {"id": "T189", "category": "性格特质", "name": "稳健保守"}, 
+    {"id": "T190", "category": "性格特质", "name": "社交魅力"}, 
+    {"id": "T191", "category": "性格特质", "name": "独处自在"}, 
+    {"id": "T192", "category": "性格特质", "name": "观察洞察"}, 
+    {"id": "T193", "category": "性格特质", "name": "目标导向"}, 
+    {"id": "T194", "category": "性格特质", "name": "追求梦想"}, 
+    {"id": "T195", "category": "性格特质", "name": "谨慎细致"}, 
+    {"id": "T196", "category": "性格特质", "name": "协调平衡"}, 
+    {"id": "T197", "category": "性格特质", "name": "创新颠覆"}, 
+    {"id": "T198", "category": "性格特质", "name": "稳健执行"}, 
+    {"id": "T199", "category": "性格特质", "name": "情感丰富"}, 
+    {"id": "T200", "category": "性格特质", "name": "内心平和"}
+];
+const WEIGHTS = {"T001": {"eco": [[11, 8], [8, 6]], "struct": []}, "T002": {"eco": [[4, 7], [8, 8]], "struct": []}, "T003": {"eco": [[7, 6]], "struct": [[3, 7]]}, "T004": {"eco": [[9, 7]], "struct": [[7, 8]]}, "T005": {"eco": [[2, 8]], "struct": [[1, 7]]}, "T006": {"eco": [[11, 7]], "struct": [[6, 9]]}, "T007": {"eco": [[1, 7]], "struct": [[0, 8]]}, "T008": {"eco": [[15, 6]], "struct": [[7, 7]]}, "T009": {"eco": [[12, 7]], "struct": [[5, 8]]}, "T010": {"eco": [], "struct": [[5, 9], [4, 8]]}, "T011": {"eco": [[12, 8], [3, 7]], "struct": []}, "T012": {"eco": [[8, 8]], "struct": [[3, 7]]}, "T013": {"eco": [[15, 6]], "struct": [[4, 7]]}, "T014": {"eco": [[4, 7], [1, 6]], "struct": []}, "T015": {"eco": [[11, 7]], "struct": [[2, 8]]}, "T016": {"eco": [[12, 9], [2, -5]], "struct": []}, "T017": {"eco": [[11, 8], [5, -6]], "struct": []}, "T018": {"eco": [[15, 7]], "struct": [[7, 8]]}, "T019": {"eco": [[15, 6]], "struct": [[0, 7]]}, "T020": {"eco": [], "struct": [[6, 8], [4, 7]]}, "T021": {"eco": [[3, 9], [3, 8]], "struct": []}, "T022": {"eco": [[1, 7], [5, 6]], "struct": []}, "T023": {"eco": [[7, 8], [5, 7]], "struct": []}, "T024": {"eco": [[7, 9]], "struct": []}, "T025": {"eco": [[11, 9], [11, 6]], "struct": []}, "T026": {"eco": [[10, 8], [8, 7]], "struct": []}, "T027": {"eco": [[12, 8], [0, 7]], "struct": []}, "T028": {"eco": [[2, 6]], "struct": [[7, 8]]}, "T029": {"eco": [[9, 6]], "struct": [[3, 7]]}, "T030": {"eco": [[8, 8], [9, 6]], "struct": []}, "T031": {"eco": [[2, 7]], "struct": [[1, 8]]}, "T032": {"eco": [[9, 7]], "struct": [[7, 7]]}, "T033": {"eco": [[5, 7]], "struct": [[2, 8]]}, "T034": {"eco": [[11, 9], [12, 6]], "struct": []}, "T035": {"eco": [[10, 7]], "struct": [[3, 8]]}, "T036": {"eco": [[5, 7], [4, 6]], "struct": []}, "T037": {"eco": [[4, 8], [14, 7]], "struct": []}, "T038": {"eco": [[1, 7]], "struct": [[0, 7]]}, "T039": {"eco": [[15, 8], [1, 6]], "struct": []}, "T040": {"eco": [[2, 8], [15, 7]], "struct": []}, "T041": {"eco": [[2, 7], [15, -6]], "struct": [[4, 9]]}, "T042": {"eco": [[4, 7]], "struct": [[5, 8]]}, "T043": {"eco": [[3, 8], [4, 6]], "struct": []}, "T044": {"eco": [[15, -6]], "struct": [[4, 8]]}, "T045": {"eco": [[14, 7]], "struct": [[6, 8]]}, "T046": {"eco": [[14, 9]], "struct": [[2, 6]]}, "T047": {"eco": [[2, -7]], "struct": [[6, 6]]}, "T048": {"eco": [[2, 8], [15, 6]], "struct": []}, "T049": {"eco": [[2, 8]], "struct": [[1, 6]]}, "T050": {"eco": [], "struct": [[2, 8], [1, 7]]}, "T051": {"eco": [[15, -7]], "struct": [[4, 9]]}, "T052": {"eco": [[15, 6]], "struct": [[1, 8]]}, "T053": {"eco": [[15, -8], [2, -6]], "struct": []}, "T054": {"eco": [[4, 7], [2, -6]], "struct": []}, "T055": {"eco": [[14, 8], [2, -5]], "struct": []}, "T056": {"eco": [[15, 6]], "struct": [[6, 8]]}, "T057": {"eco": [[4, 6]], "struct": [[6, 7]]}, "T058": {"eco": [], "struct": [[4, 8], [3, 7]]}, "T059": {"eco": [[2, 8]], "struct": [[1, 9]]}, "T060": {"eco": [[15, 8], [1, 7]], "struct": []}, "T061": {"eco": [[15, 6]], "struct": [[4, 8]]}, "T062": {"eco": [[14, 9], [2, -6]], "struct": []}, "T063": {"eco": [[5, 7]], "struct": [[3, 8]]}, "T064": {"eco": [[7, 9]], "struct": [[5, 6]]}, "T065": {"eco": [[4, 7]], "struct": [[0, 8]]}, "T066": {"eco": [[15, -7]], "struct": [[1, 8]]}, "T067": {"eco": [[8, 9], [15, 7]], "struct": []}, "T068": {"eco": [[15, 6]], "struct": [[6, 7]]}, "T069": {"eco": [[3, 9], [12, 8]], "struct": []}, "T070": {"eco": [[4, 9], [2, -7]], "struct": []}, "T071": {"eco": [[3, 6]], "struct": [[2, 7]]}, "T072": {"eco": [[2, 6]], "struct": [[4, 7]]}, "T073": {"eco": [[15, 6]], "struct": [[4, 8]]}, "T074": {"eco": [[12, 8], [15, 7]], "struct": []}, "T075": {"eco": [[4, 7]], "struct": [[4, 6]]}, "T076": {"eco": [[15, -6]], "struct": [[4, 9]]}, "T077": {"eco": [[5, 8], [8, 7]], "struct": []}, "T078": {"eco": [[4, 7], [2, 6]], "struct": []}, "T079": {"eco": [[14, 9], [3, 7]], "struct": []}, "T080": {"eco": [[4, 7], [2, -6]], "struct": []}, "T081": {"eco": [[1, 8], [2, 7]], "struct": []}, "T082": {"eco": [[4, 8], [2, -5]], "struct": []}, "T083": {"eco": [[1, 7]], "struct": [[3, 7]]}, "T084": {"eco": [[5, 6]], "struct": [[4, 7]]}, "T085": {"eco": [[7, 8], [4, 6]], "struct": []}, "T086": {"eco": [], "struct": [[2, 7], [7, 6]]}, "T087": {"eco": [[5, 7]], "struct": [[2, 8]]}, "T088": {"eco": [[2, 6]], "struct": [[0, 8]]}, "T089": {"eco": [[2, 8], [2, 7]], "struct": []}, "T090": {"eco": [[14, 9], [2, -6]], "struct": []}, "T091": {"eco": [[15, 6]], "struct": [[6, 8]]}, "T092": {"eco": [[3, 8], [3, 7]], "struct": []}, "T093": {"eco": [[11, 8], [12, 7]], "struct": []}, "T094": {"eco": [[4, 6]], "struct": [[3, 7]]}, "T095": {"eco": [[15, 6]], "struct": [[0, 7]]}, "T096": {"eco": [[7, 8], [15, 6]], "struct": []}, "T097": {"eco": [[8, 8], [4, 7]], "struct": []}, "T098": {"eco": [[12, 9], [15, -6]], "struct": []}, "T099": {"eco": [[4, 7], [15, 7]], "struct": []}, "T100": {"eco": [[5, 8]], "struct": [[1, 7]]}, "T101": {"eco": [[14, 7]], "struct": [[6, 8]]}, "T102": {"eco": [[11, 8], [10, 7]], "struct": []}, "T103": {"eco": [[11, 7], [15, 6]], "struct": []}, "T104": {"eco": [[15, 7], [12, 6]], "struct": []}, "T105": {"eco": [[12, 8], [2, -5]], "struct": []}, "T106": {"eco": [[5, -5]], "struct": [[6, 7]]}, "T107": {"eco": [[2, 6], [7, 6]], "struct": []}, "T108": {"eco": [[15, 6]], "struct": [[2, 7]]}, "T109": {"eco": [[8, 9], [15, -5]], "struct": []}, "T110": {"eco": [[15, 8], [2, 6]], "struct": []}, "T111": {"eco": [[15, 6]], "struct": [[0, 7]]}, "T112": {"eco": [[11, 8], [7, 6]], "struct": []}, "T113": {"eco": [[2, 6], [2, 6]], "struct": []}, "T114": {"eco": [[15, -5]], "struct": [[6, 7]]}, "T115": {"eco": [[12, 6]], "struct": [[7, 7]]}, "T116": {"eco": [[4, 7], [15, 6]], "struct": []}, "T117": {"eco": [[5, 8]], "struct": [[2, 6]]}, "T118": {"eco": [[11, 7], [15, 6]], "struct": []}, "T119": {"eco": [[15, 6]], "struct": [[3, 7]]}, "T120": {"eco": [[12, 8], [15, -6]], "struct": []}, "T121": {"eco": [[12, 8], [3, 7]], "struct": []}, "T122": {"eco": [[2, 8], [15, 7]], "struct": []}, "T123": {"eco": [[12, 7], [10, 6]], "struct": []}, "T124": {"eco": [[1, 8], [12, 6]], "struct": []}, "T125": {"eco": [[11, 7], [10, 6]], "struct": []}, "T126": {"eco": [[7, 7], [4, 6]], "struct": []}, "T127": {"eco": [[14, 7]], "struct": [[6, 8]]}, "T128": {"eco": [[4, 8], [2, -6]], "struct": []}, "T129": {"eco": [[2, 7], [15, 6]], "struct": []}, "T130": {"eco": [[14, 7], [2, -5]], "struct": []}, "T131": {"eco": [[1, 7], [4, 6]], "struct": []}, "T132": {"eco": [[15, 6], [12, -5]], "struct": []}, "T133": {"eco": [[12, 6]], "struct": [[5, 8]]}, "T134": {"eco": [[4, 8], [2, -6]], "struct": []}, "T135": {"eco": [[2, 7], [15, 6]], "struct": []}, "T136": {"eco": [[2, -5]], "struct": [[7, 6]]}, "T137": {"eco": [[12, 7], [10, 6]], "struct": []}, "T138": {"eco": [[1, 7], [12, 6]], "struct": []}, "T139": {"eco": [[15, -5]], "struct": [[6, 7]]}, "T140": {"eco": [[2, 6], [2, 6]], "struct": []}, "T141": {"eco": [[14, 8]], "struct": [[7, 6]]}, "T142": {"eco": [[7, 7], [2, 6]], "struct": []}, "T143": {"eco": [[12, 7], [15, 6]], "struct": []}, "T144": {"eco": [[1, 7], [4, 6]], "struct": []}, "T145": {"eco": [[4, 8], [2, -6]], "struct": []}, "T146": {"eco": [[4, 9], [5, -6]], "struct": []}, "T147": {"eco": [[5, 8], [10, 7]], "struct": []}, "T148": {"eco": [[2, 8], [15, 8]], "struct": []}, "T149": {"eco": [[12, 6]], "struct": [[7, 8]]}, "T150": {"eco": [[11, 6]], "struct": [[6, 7]]}, "T151": {"eco": [], "struct": [[5, 8], [1, 7]]}, "T152": {"eco": [[2, -6]], "struct": [[2, 8]]}, "T153": {"eco": [[15, 8], [1, 7]], "struct": []}, "T154": {"eco": [[14, 7]], "struct": [[6, 8]]}, "T155": {"eco": [[15, 7], [5, 7]], "struct": []}, "T156": {"eco": [[5, -7]], "struct": [[1, -6]]}, "T157": {"eco": [[5, 8], [15, 7]], "struct": []}, "T158": {"eco": [], "struct": [[5, 8], [4, 6]]}, "T159": {"eco": [[5, 7]], "struct": [[4, 8]]}, "T160": {"eco": [[2, -6]], "struct": [[6, 7]]}, "T161": {"eco": [[7, 7]], "struct": [[4, 8]]}, "T162": {"eco": [[12, 7], [15, -6]], "struct": []}, "T163": {"eco": [[5, 7]], "struct": [[3, 8]]}, "T164": {"eco": [[5, -7], [4, -6]], "struct": []}, "T165": {"eco": [[7, -5]], "struct": [[6, 7]]}, "T166": {"eco": [[15, 6]], "struct": [[4, 8]]}, "T167": {"eco": [[2, 8]], "struct": [[1, 7]]}, "T168": {"eco": [[5, -5]], "struct": [[6, 7]]}, "T169": {"eco": [[7, 7]], "struct": [[3, 8]]}, "T170": {"eco": [[15, -5]], "struct": [[6, 7]]}, "T171": {"eco": [[4, 9]], "struct": [[4, 8]]}, "T172": {"eco": [[8, 7]], "struct": [[6, 8]]}, "T173": {"eco": [[2, 8]], "struct": [[1, 8]]}, "T174": {"eco": [[11, 9], [12, 7]], "struct": []}, "T175": {"eco": [[1, 8]], "struct": [[7, 9]]}, "T176": {"eco": [[9, 7]], "struct": [[3, 8]]}, "T177": {"eco": [[4, 8], [15, -6]], "struct": []}, "T178": {"eco": [[2, 9], [15, 7]], "struct": []}, "T179": {"eco": [[10, 7]], "struct": [[2, 9]]}, "T180": {"eco": [[3, 8]], "struct": [[0, 9]]}, "T181": {"eco": [[12, 8], [15, -6]], "struct": []}, "T182": {"eco": [], "struct": [[6, 8], [4, 8]]}, "T183": {"eco": [[15, 7]], "struct": [[2, 8]]}, "T184": {"eco": [[2, 8]], "struct": [[1, 8]]}, "T185": {"eco": [[7, 7]], "struct": [[5, 9]]}, "T186": {"eco": [[11, 7]], "struct": [[0, 8]]}, "T187": {"eco": [[7, 7]], "struct": [[3, 8]]}, "T188": {"eco": [[8, -6]], "struct": [[6, 9]]}, "T189": {"eco": [], "struct": [[1, 8], [6, -7]]}, "T190": {"eco": [[12, 8]], "struct": [[7, 9]]}, "T191": {"eco": [[4, 9], [2, -7]], "struct": []}, "T192": {"eco": [[12, -6]], "struct": [[2, 8]]}, "T193": {"eco": [[4, 9], [3, 8]], "struct": []}, "T194": {"eco": [[15, 7]], "struct": [[6, 8]]}, "T195": {"eco": [[8, 9]], "struct": [[6, -6]]}, "T196": {"eco": [[13, 8], [2, 7]], "struct": []}, "T197": {"eco": [[11, 9], [5, -6]], "struct": []}, "T198": {"eco": [[7, 8]], "struct": [[3, 9]]}, "T199": {"eco": [[12, 9], [12, 8]], "struct": []}, "T200": {"eco": [[15, 8]], "struct": [[1, 9]]}};
+const ECO2AX = {0:7,1:7,2:4,3:5,4:3,5:4,6:6,7:3,8:2,9:2,10:2,11:6,12:5,13:1,14:6,15:4};
+
+// 标签到Big Five的映射权重表
+const TAG_TO_BF_WEIGHTS = {
+  // 行业职业类 - 主要影响开放性(O)和尽责性(C)
+  "T001": [0.15, 0.10, 0.05, 0.00, -0.05], // 科技互联网 -> 高开放性
+  "T002": [0.05, 0.15, 0.05, 0.00, 0.05],  // 金融理财 -> 高尽责性
+  "T003": [0.00, 0.15, 0.00, 0.05, 0.00],  // 制造生产 -> 高尽责性，高宜人性
+  "T004": [0.10, 0.10, 0.10, 0.15, -0.05], // 教育培训 -> 高宜人性，高外向性
+  "T005": [0.05, 0.15, 0.05, 0.20, -0.10], // 医疗健康 -> 高宜人性，高尽责性
+  "T006": [0.25, 0.00, 0.10, 0.05, 0.05],  // 艺术创意 -> 高开放性
+  "T007": [0.00, 0.20, 0.00, 0.10, -0.05], // 政府机关 -> 高尽责性
+  "T008": [0.10, 0.10, 0.05, 0.20, -0.10], // 公益组织 -> 高宜人性
+  "T009": [0.05, 0.10, 0.15, 0.10, 0.00],  // 商贸零售 -> 高外向性
+  "T010": [0.05, 0.10, 0.20, 0.10, -0.15], // 体育运动 -> 高外向性，低神经质
+  "T011": [0.15, 0.05, 0.15, 0.05, 0.00],  // 媒体传播 -> 高开放性，高外向性
+  "T012": [0.05, 0.20, 0.05, 0.05, -0.05], // 法律服务 -> 高尽责性
+  "T013": [0.00, 0.15, 0.00, 0.10, -0.05], // 农林牧渔 -> 高尽责性
+  "T014": [0.05, 0.15, 0.10, 0.05, 0.05],  // 房地产 -> 高尽责性，高外向性
+  "T015": [0.15, 0.10, 0.10, 0.05, 0.00],  // 咨询服务 -> 高开放性
+  "T016": [0.20, 0.00, 0.15, 0.05, 0.05],  // 娱乐影视 -> 高开放性，高外向性
+  "T017": [0.20, 0.05, 0.05, 0.00, 0.00],  // 游戏开发 -> 高开放性
+  "T018": [0.10, 0.10, 0.05, 0.25, -0.15], // 公益慈善 -> 高宜人性
+  "T019": [0.15, 0.10, 0.00, 0.15, -0.05], // 环保绿色 -> 高开放性，高宜人性
+  "T020": [0.20, 0.05, 0.15, 0.00, 0.10],  // 创业公司 -> 高开放性，高外向性
+
+  // 职位层级类 - 主要影响外向性(E)和尽责性(C)
+  "T021": [0.10, 0.20, 0.25, 0.05, -0.10], // 高层管理 -> 高外向性，高尽责性
+  "T022": [0.05, 0.15, 0.15, 0.10, -0.05], // 中层管理 -> 中等外向性，高尽责性
+  "T023": [0.10, 0.20, 0.10, 0.10, 0.00],  // 项目经理 -> 高尽责性
+  "T024": [0.00, 0.10, 0.00, 0.05, 0.05],  // 基层员工 -> 中等水平
+  "T025": [0.25, 0.05, 0.10, 0.05, 0.05],  // 创意设计 -> 高开放性
+  "T026": [0.15, 0.15, 0.00, 0.00, 0.00],  // 技术开发 -> 高开放性，高尽责性
+  "T027": [0.05, 0.10, 0.25, 0.10, 0.00],  // 销售业务 -> 高外向性
+  "T028": [0.00, 0.10, 0.10, 0.20, -0.05], // 客户服务 -> 高宜人性
+  "T029": [0.00, 0.20, 0.00, 0.10, -0.05], // 行政后勤 -> 高尽责性
+  "T030": [0.15, 0.15, 0.10, 0.05, 0.00],  // 专业顾问 -> 高开放性，高尽责性
+
+  // 重要经历类 - 主要影响神经质(N)和开放性(O)
+  "T041": [0.10, -0.05, -0.10, -0.05, 0.20], // 创业失败 -> 高神经质
+  "T042": [0.15, 0.10, 0.15, 0.00, -0.10],   // 创业成功 -> 高开放性，低神经质
+  "T043": [0.05, 0.15, 0.10, 0.05, -0.05],   // 职场晋升 -> 高尽责性
+  "T044": [0.00, -0.10, -0.15, -0.05, 0.25], // 失业挫折 -> 高神经质
+  "T045": [0.20, 0.05, 0.05, 0.10, -0.05],   // 留学深造 -> 高开放性
+  "T046": [0.25, 0.05, 0.10, 0.10, -0.05],   // 海外工作 -> 高开放性
+  "T047": [-0.05, -0.05, -0.10, -0.10, 0.20], // 感情分离 -> 高神经质
+  "T048": [0.00, 0.10, 0.05, 0.15, -0.10],    // 步入婚姻 -> 高宜人性
+  "T049": [0.00, 0.15, 0.00, 0.20, -0.05],    // 为人父母 -> 高宜人性，高尽责性
+  "T050": [-0.10, 0.00, -0.15, 0.05, 0.25],   // 亲人离世 -> 高神经质
+
+  // 成长背景类 - 主要影响开放性(O)和神经质(N)
+  "T071": [0.15, 0.05, 0.10, 0.00, 0.00],  // 大城市 -> 高开放性
+  "T072": [0.00, 0.10, 0.05, 0.10, 0.00],  // 小城镇 -> 中等水平
+  "T073": [-0.05, 0.10, 0.00, 0.15, -0.05], // 农村乡镇 -> 高宜人性
+  "T074": [0.10, 0.05, 0.15, 0.00, -0.15],  // 富裕家庭 -> 高外向性，低神经质
+  "T075": [0.05, 0.10, 0.05, 0.10, 0.00],   // 中等家庭 -> 中等水平
+  "T076": [-0.05, 0.05, -0.10, 0.05, 0.20], // 困难家庭 -> 高神经质
+  "T077": [0.20, 0.10, 0.10, 0.05, -0.10],  // 优质教育 -> 高开放性
+  "T078": [0.05, 0.10, 0.05, 0.10, 0.00],   // 普通教育 -> 中等水平
+  "T079": [0.25, 0.05, 0.15, 0.10, -0.05],  // 国际背景 -> 高开放性
+
+  // 生活方式类 - 主要影响尽责性(C)和外向性(E)
+  "T096": [-0.05, 0.20, -0.05, 0.05, -0.05], // 节约储蓄 -> 高尽责性
+  "T097": [0.10, 0.15, 0.05, 0.00, 0.00],    // 理财投资 -> 高尽责性，高开放性
+  "T098": [0.10, 0.05, 0.10, 0.00, 0.00],    // 品质消费 -> 高开放性
+  "T099": [0.05, 0.15, -0.10, 0.05, -0.10],  // 极简生活 -> 高尽责性，低外向性
+  "T100": [0.00, 0.15, 0.10, 0.05, -0.15],   // 健身运动 -> 高尽责性，低神经质
+  "T101": [0.20, 0.00, 0.15, 0.05, -0.05],   // 旅游探索 -> 高开放性，高外向性
+  "T102": [0.20, 0.10, 0.00, 0.00, 0.00],    // 科技数码 -> 高开放性
+  "T103": [0.25, 0.05, 0.05, 0.05, 0.05],    // 文艺创作 -> 高开放性
+
+  // 社交特征类 - 主要影响外向性(E)和宜人性(A)
+  "T121": [0.05, 0.00, 0.25, 0.15, -0.05],   // 广泛社交 -> 高外向性，高宜人性
+  "T122": [0.05, 0.05, 0.10, 0.20, 0.00],    // 深度交友 -> 高宜人性
+  "T123": [0.10, 0.00, 0.20, 0.05, 0.00],    // 网络活跃 -> 高外向性
+  "T124": [0.00, 0.05, 0.20, 0.15, -0.05],   // 线下聚会 -> 高外向性，高宜人性
+  "T125": [0.15, 0.00, 0.15, 0.10, 0.00],    // 跨界交友 -> 高开放性，高外向性
+  "T128": [-0.05, 0.05, -0.20, 0.00, 0.10],  // 社交内向 -> 低外向性
+  "T145": [-0.10, 0.10, -0.25, -0.05, 0.05], // 独处偏好 -> 低外向性
+
+  // 时间管理类 - 主要影响尽责性(C)
+  "T146": [0.00, 0.15, 0.05, -0.05, 0.10],   // 工作狂人 -> 高尽责性
+  "T147": [0.15, 0.20, 0.00, 0.05, -0.05],   // 学习达人 -> 高开放性，高尽责性
+  "T148": [0.00, 0.10, 0.00, 0.20, -0.10],   // 家庭时光 -> 高宜人性
+  "T155": [0.05, 0.15, 0.05, 0.10, -0.15],   // 平衡生活 -> 高尽责性，低神经质
+  "T157": [0.00, 0.20, 0.00, 0.05, -0.15],   // 规律作息 -> 高尽责性，低神经质
+  "T158": [0.05, 0.10, 0.15, 0.00, 0.05],    // 冲刺型 -> 高外向性
+  "T159": [0.00, 0.20, 0.00, 0.10, -0.10],   // 稳定型 -> 高尽责性
+
+  // 性格特质类 - 直接映射到Big Five
+  "T171": [0.05, 0.15, 0.15, 0.00, -0.05],   // 奋斗拼搏 -> 高尽责性，高外向性
+  "T172": [0.25, 0.05, 0.10, 0.00, 0.00],    // 探索创新 -> 高开放性
+  "T173": [0.00, 0.20, 0.00, 0.20, -0.10],   // 守护责任 -> 高尽责性，高宜人性
+  "T174": [0.25, 0.00, 0.05, 0.10, 0.10],    // 艺术气质 -> 高开放性
+  "T175": [0.05, 0.00, 0.20, 0.25, -0.05],   // 人际连接 -> 高外向性，高宜人性
+  "T176": [0.00, 0.25, 0.00, 0.05, -0.15],   // 规划有序 -> 高尽责性
+  "T177": [0.10, 0.10, -0.10, -0.10, 0.00],  // 独立自主 -> 高开放性，低外向性
+  "T178": [0.05, 0.05, 0.05, 0.25, -0.15],   // 修复治愈 -> 高宜人性
+  "T179": [0.20, 0.05, -0.10, 0.00, 0.05],   // 深度思考 -> 高开放性，低外向性
+  "T180": [0.10, 0.15, 0.25, 0.10, -0.10],   // 领导引导 -> 高外向性，高尽责性
+  "T186": [0.15, 0.00, 0.05, 0.15, 0.05],    // 理想主义 -> 高开放性，高宜人性
+  "T187": [0.00, 0.20, 0.05, 0.05, -0.05],   // 实用主义 -> 高尽责性
+  "T188": [0.20, -0.05, 0.15, -0.05, 0.10],  // 冒险探险 -> 高开放性，高外向性
+  "T189": [-0.10, 0.15, -0.10, 0.10, -0.10], // 稳健保守 -> 高尽责性，低开放性
+  "T190": [0.05, 0.00, 0.25, 0.20, -0.10],   // 社交魅力 -> 高外向性，高宜人性
+  "T191": [-0.10, 0.05, -0.25, -0.05, 0.05], // 独处自在 -> 低外向性
+  "T192": [0.15, 0.10, -0.05, 0.05, 0.00],   // 观察洞察 -> 高开放性
+  "T193": [0.05, 0.20, 0.15, 0.00, -0.05],   // 目标导向 -> 高尽责性，高外向性
+  "T194": [0.20, 0.05, 0.10, 0.10, 0.00],    // 追求梦想 -> 高开放性
+  "T195": [-0.05, 0.25, -0.05, 0.05, -0.10], // 谨慎细致 -> 高尽责性
+  "T196": [0.10, 0.15, 0.10, 0.20, -0.10],   // 协调平衡 -> 高宜人性，高尽责性
+  "T197": [0.25, -0.05, 0.10, -0.05, 0.05],  // 创新颠覆 -> 高开放性
+  "T198": [0.00, 0.25, 0.05, 0.10, -0.10],   // 稳健执行 -> 高尽责性
+  "T199": [0.15, 0.00, 0.10, 0.15, 0.15],    // 情感丰富 -> 高开放性，高神经质
+  "T200": [0.05, 0.10, -0.05, 0.15, -0.20]   // 内心平和 -> 高宜人性，低神经质
+};
+
+// 为没有映射的标签提供默认值
+function getTagBFWeight(tagId) {
+  return TAG_TO_BF_WEIGHTS[tagId] || [0, 0, 0, 0, 0];
+}
+
+// 计算Big Five环境画像
+function computeBigFiveFromTags(selectedTags) {
+  const bf = [50, 50, 50, 50, 50]; // 基准值 [O, C, E, A, N]
+  
+  selectedTags.forEach(tagId => {
+    const weights = getTagBFWeight(tagId);
+    for (let i = 0; i < 5; i++) {
+      bf[i] += weights[i] * 50; // 权重乘以50作为影响强度
+    }
+  });
+  
+  // 限制在0-100范围内
+  return bf.map(value => Math.max(0, Math.min(100, Math.round(value))));
+}
+
+// 更新Big Five预览
+function updateBFPreview() {
+  const selectedArray = Array.from(selected);
+  const bf = computeBigFiveFromTags(selectedArray);
+  const labels = ['开放性(O)', '尽责性(C)', '外向性(E)', '宜人性(A)', '神经质(N)'];
+  
+  const bars = document.querySelectorAll('#bfPreview .bf-bar');
+  bars.forEach((bar, index) => {
+    const fill = bar.querySelector('.bf-fill');
+    const num = bar.querySelector('.bf-num');
+    const value = bf[index];
+    
+    fill.style.width = `${value}%`;
+    num.textContent = value;
+  });
+}
+
+const PARENTS = [
+ ["全部", ["*"]],
+ ["行业职业", ["行业职业"]],
+ ["职位层级", ["职位层级"]],
+ ["重要经历", ["重要经历"]],
+ ["成长环境", ["成长环境", "家庭条件", "教育资源", "家庭结构", "家庭背景"]],
+ ["消费与生活", ["消费习惯", "兴趣爱好"]],
+ ["社交指纹", ["社交方式", "社交圈子", "社交能力", "社交动机"]],
+ ["时间分配", ["时间分配", "生活节奏", "工作方式", "生活方式"]],
+ ["性格特质", ["性格特质"]],
+];
+
+// New storage keys to avoid legacy polluted data
+const KEY_SEL = 'step2_selected_v6n';
+const KEY_CAT = 'step2_activeCat_v6n';
+
+function sanitizeSelected(raw){
+  try{
+    const arr = Array.isArray(raw) ? raw : [];
+    const valid = new Set(TAGS.map(t=>t.id));
+    const uniq = Array.from(new Set(arr)).filter(id => typeof id==='string' && valid.has(id));
+    return uniq;
+  }catch(e){ return []; }
+}
+let selected = new Set(sanitizeSelected(getNS(KEY_SEL, [])));
+let parentActive = localStorage.getItem(KEY_CAT) || '全部';
+
+// UI renderers
+const chips = document.getElementById('chips');
+function renderChips(){
+  chips.innerHTML = PARENTS.map(([name,_])=>`<div class="chip ${name===parentActive?'active':''}" data-k="${name}"><b>${name}</b><span>›</span></div>`).join('');
+}
+renderChips();
+chips.addEventListener('click', (e)=>{
+  const el = e.target.closest('.chip'); if(!el) return;
+  e.preventDefault(); e.stopPropagation();
+  parentActive = el.getAttribute('data-k');
+  localStorage.setItem(KEY_CAT, parentActive);
+  document.getElementById('catName').textContent='当前：'+parentActive;
+  renderChips(); renderGrid();
+});
+
+const grid = document.getElementById('tagGrid');
+function inParent(tag){
+  if(parentActive==='全部') return true;
+  const map = new Map(PARENTS);
+  const arr = map.get(parentActive) || [];
+  return arr.includes(tag.category);
+}
+function cardHTML(t){
+  const act = selected.has(t.id) ? 'active' : '';
+  return `<div class="q ${act}" data-id="${t.id}">
+    <div style="display:flex;justify-content:space-between;align-items:center"><b>${t.name}</b><span class='pill'>${t.id}</span></div>
+    <div style='color:#9fb0ff;font-size:12px;margin-top:6px'>${t.category}</div>
+  </div>`;
+}
+function renderGrid(){
+  const list = TAGS.filter(inParent);
+  grid.innerHTML = list.map(cardHTML).join('');
+}
+renderGrid();
+
+// toggle
+let toggleLock = false;
+grid.addEventListener('click', (e)=>{
+  if(toggleLock) return;
+  const card = e.target.closest('.q'); if(!card || !grid.contains(card)) return;
+  e.preventDefault(); e.stopPropagation();
+  try{
+    toggleLock = true;
+    const id = card.getAttribute('data-id');
+    if(selected.has(id)) selected.delete(id); else selected.add(id);
+    setNS(KEY_SEL, JSON.stringify(Array.from(selected)));
+    card.classList.toggle('active');
+    updateSel();
+    updateBFPreview();
+  } finally {
+    setTimeout(()=>{ toggleLock=false; }, 0);
+  }
+}, {capture:false, passive:false});
+
+document.getElementById('btnClear').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  selected = new Set();
+  setNS(KEY_SEL, '[]');
+  renderGrid(); updateSel(); updateBFPreview();
+});
+
+function updateSel(){
+  const n = selected.size|0;
+  document.getElementById('selMeta').textContent = '已选：'+ n +' / 200';
+}
+updateSel();
+
+// Save -> compute and persist for subsequent steps
+function computeAggregates(){
+  const s8 = Array(8).fill(0);
+  const e16 = Array(16).fill(0);
+  const ids = new Set(selected);
+  TAGS.forEach(t=>{
+    if(!ids.has(t.id)) return;
+    const w = WEIGHTS[t.id] || {eco:[], struct:[]};
+    (w.struct||[]).forEach(([ai, dv])=> s8[ai]+=dv );
+    (w.eco||[]).forEach(([ei, dv])=> e16[ei]+=dv );
+  });
+  const s_fromEco = Array(8).fill(0);
+  for(let i=0;i<16;i++){ s_fromEco[ECO2AX[i]] += e16[i]; }
+  const s8Total = s8.map((v,i)=> v + s_fromEco[i]);
+  return {s8Total, e16};
+}
+
+function handleSaveStep2(next){
+  const selectedArr = Array.from(selected);
+  const bf_env = computeBigFiveFromTags(selectedArr);
+  
+  // 计算旧格式数据用于向后兼容
+  const aggregates = computeAggregates();
+  const struct_raw = aggregates.s8Total;
+  const eco16_raw = aggregates.e16;
+  
+  // 计算 pot2_raw（8维环境潜力）
+  let pot2_raw;
+  if (window.bf_to_pot8 && typeof window.bf_to_pot8 === 'function') {
+    pot2_raw = window.bf_to_pot8(bf_env);
+  } else {
+    // 如果 bf_to_pot8 不可用，使用基于 Big Five 的简单映射
+    const [O, C, E, A, N] = bf_env;
+    pot2_raw = [
+      Math.round(O * 0.8 + E * 0.2),           // 创新潜力
+      Math.round(C * 0.7 + A * 0.3),           // 执行潜力
+      Math.round(E * 0.9 + O * 0.1),           // 社交潜力
+      Math.round(A * 0.8 + (100-N) * 0.2),     // 协作潜力
+      Math.round((100-N) * 0.7 + C * 0.3),     // 稳定潜力
+      Math.round(O * 0.6 + (100-N) * 0.4),     // 适应潜力
+      Math.round(C * 0.5 + E * 0.3 + A * 0.2), // 领导潜力
+      Math.round(O * 0.4 + E * 0.3 + C * 0.3)  // 学习潜力
+    ];
+  }
+  
+  // 保存新格式（主要）
+  setNS('step2_bf_env', bf_env);
+  setNS(KEY_SEL, selectedArr);
+  setNS('pot2_raw', pot2_raw);
+  
+  // 保存旧格式（向后兼容）
+  setNS('step2_struct_raw', struct_raw);
+  setNS('step2_eco16_raw', eco16_raw);
+  
+  alert('Step2 已保存（包含环境潜力数据）');
+  try{
+    if(window.PSYS){
+      PSYS.saveStep('step2', {
+        selected: selectedArr,
+        bf_env: bf_env,
+        pot2_raw: pot2_raw,
+        structRaw: struct_raw,    // 向后兼容
+        eco16Raw: eco16_raw,     // 向后兼容
+        savedAt: new Date().toISOString()
+      });
+    }
+  }catch(err){ console.warn('PSYS.saveStep step2 failed', err); }
+  if(next){ window.location.href = next; }
+}
+
+document.getElementById('btnSave').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep2('step3_linked.html');
+});
+
+document.getElementById('btnSaveHub').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep2('hub.html');
+});
+
+document.getElementById('btnStep1').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep2('step1_linked.html');
+});
+
+document.getElementById('btnStep4').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep2('step4_linked.html');
+});
+
+// 随机选择标签功能
+document.getElementById('btnRandomFill').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  
+  // 清空当前选择
+  selected = new Set();
+  
+  // 随机选择 30-80 个标签（合理范围）
+  const randomCount = Math.floor(Math.random() * 51) + 30; // 30-80
+  const allTagIds = TAGS.map(t => t.id);
+  
+  // 随机打乱数组并选择前 randomCount 个
+  const shuffled = allTagIds.sort(() => Math.random() - 0.5);
+  for (let i = 0; i < randomCount && i < shuffled.length; i++) {
+    selected.add(shuffled[i]);
+  }
+  
+  // 保存到 localStorage
+  setNS(KEY_SEL, JSON.stringify(Array.from(selected)));
+  
+  // 更新界面
+  renderGrid(); 
+  updateSel(); 
+  updateBFPreview();
+  
+  alert(`已随机选择 ${selected.size} 个标签！`);
+});
+
+window.onerror = function(msg, src, line, col, err){ 
+  document.getElementById('debug').textContent = 'JS错误: '+msg+' @'+line+':'+col; 
+};
+</script>
+</div>
+<script>
+(function(){
+  const NS='psys:v1';
+  
+  function qs(k){
+    const u=new URL(location.href);
+    return u.searchParams.get(k);
+  }
+  function setMetaFromUrl(){
+    const teamId=qs('teamId'), userId=qs('userId'), runId=qs('runId');
+    if(teamId && userId && runId){
+      sessionStorage.setItem(`${NS}:currentSession`, JSON.stringify({teamId,userId,runId}));
+      return true;
+    }
+    return false;
+  }
+  function getMeta(){
+    try{
+      const raw=sessionStorage.getItem(`${NS}:currentSession`);
+      return raw?JSON.parse(raw):null;
+    }catch{ return null; }
+  }
+  setMetaFromUrl();
+  const meta=getMeta();
+  
+  // 将 hydrateStep2 函数移到 IIFE 内部
+  function hydrateStep2(meta){
+    if(!window.PSYS || !meta){
+      selected = new Set();
+      setNS(KEY_SEL, '[]');
+      renderGrid(); updateSel(); updateBFPreview();
+      return;
+    }
+    try{
+      const sess = PSYS.getSession(meta.teamId, meta.userId, meta.runId);
+      const saved = sess?.step2;
+      if(saved && Array.isArray(saved.selected)){
+        selected = new Set(sanitizeSelected(saved.selected));
+        setNS(KEY_SEL, Array.from(selected));
+        if(Array.isArray(saved.bf_env)){
+          setNS('step2_bf_env', saved.bf_env);
+        }
+      }else{
+        selected = new Set();
+        setNS(KEY_SEL, []);
+        localStorage.removeItem('step2_bf_env');
+      }
+      renderGrid(); updateSel(); updateBFPreview();
+    }catch(err){ console.warn('hydrate step2 failed', err); }
+  }
+  
+  if(!meta){
+    // 无会话时允许本地模式，不强制跳转
+    console.warn('No current session; running in LOCAL mode');
+    hydrateStep2(null); // 本地模式
+    updateBFPreview();
+    // 显示本地模式角标
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#8b4513;border:1px solid #a0522d;color:#fff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='本地模式 · 未关联团队';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  } else {
+    hydrateStep2(meta);
+    updateBFPreview();
+    // mount a small corner badge
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#0e1633;border:1px solid #1c2447;color:#e7ecff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='团队/成员已关联 · 安全会话';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  }
+
+  // Provide manual hooks
+  window.psysMarkStepCompleted = function(partName){
+    if(!window.PSYS){ console.warn('PSYS not loaded'); return; }
+    PSYS.saveStep(partName, {manual:true, savedAt: new Date().toISOString()});
+  };
+})();
+</script>
+
+</body></html>

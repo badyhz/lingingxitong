@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Step1 · 80 道题自评问卷（正式题面）</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1020;--card:#121833;--ink:#e7ecff;--muted:#98a1c0;--brand:#6c8cff;--line:#1c2447}
+*{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1430);color:var(--ink);font-family:'Noto Sans SC',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+.wrap{max-width:1150px;margin:22px auto 80px;padding:14px}.h1{font-size:26px;font-weight:700;margin:6px 0 12px}
+.card{background:linear-gradient(180deg,#121833,#0f1733);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.btn{padding:8px 14px;border-radius:8px;background:#6c8cff;color:#fff;margin-right:6px;text-decoration:none;border:1px solid #7a95ff;cursor:pointer}
+.pill{padding:4px 10px;border:1px solid #2a3b7a;border-radius:12px;font-size:12px;color:#c9d4ff}
+.q{padding:12px;border:1px dashed #2a3b7a;border-radius:12px;background:#0c1433;margin-bottom:8px}
+.hint{color:#a8b3e6;font-size:12px;margin-bottom:8px}
+</style>  
+<script src="./storage.js"></script>
+<script src="./bf_mappings.js"></script>
+<script>
+/* === 命名空间工具：提前定义，避免 TDZ === */
+function getNamespacedKey(baseKey){
+  const NS = (window.PSYS && PSYS.NS) || 'psys:v1';
+  const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`) || 'null');
+  return meta ? `${baseKey}:${meta.teamId}:${meta.userId}:${meta.runId}` : baseKey;
+}
+function getNS(k, fallback=null){
+  try {
+    const raw = localStorage.getItem(getNamespacedKey(k));
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+function setNS(k, v){
+  localStorage.setItem(getNamespacedKey(k), JSON.stringify(v));
+}
+/* 保留一个字符串常量（有些地方要读这个） */
+const NS_STR = (window.PSYS && PSYS.NS) || 'psys:v1';
+</script>
+</head><body><div class="wrap">
+<div class="h1">Step 1 · 80 道题自评问卷（1–7分）</div>
+<div class="card">
+  <div class="hint">说明：请根据你在工作/生活中的<strong>稳定表现</strong>作答；1=非常不同意，7=非常同意。</div>
+  <div id="qBox"></div>
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" id="randomFillBtn" style="background:#ff6b6b;border-color:#ff7979">随机填写所有题目</button>
+    <button class="btn" id="saveNextBtn">保存并前往 Step 2</button>
+    <button class="btn" id="saveHubBtn">保存并返回 Hub</button>
+    <button class="btn" id="saveStep3Btn">保存并前往 Step 3</button>
+    <button class="btn" id="saveStep4Btn">保存并前往 Step 4</button>
+    <button class="btn" id="saveDashboardBtn">保存并前往 Dashboard</button>
+  </div>
+</div>
+<script>
+// 防止脚本重复加载
+if(!window.__STEP1_V6N_LOADED){ window.__STEP1_V6N_LOADED = true; } else { throw new Error('脚本重复加载被阻止'); }
+
+const Q = [
+  // 创新思维维度 (1-16)
+  "我会主动寻找新点子并尝试全新的做法。", 
+  "面对陌生主题，我会出于好奇去深入了解。", 
+  "我能从多个角度看待同一个问题。", 
+  "我喜欢把零散的信息组织成一个更清晰的结构。", 
+  "我愿意试验未经验证的方法来改进流程。", 
+  "即使方案成熟，我也会继续思考有没有更好的方式。", 
+  "我能在复杂信息中迅速抓住关键线索。", 
+  "我擅长把经验转化为可复制的最佳实践。", 
+  "我乐于把抽象概念转换成可落地的步骤。", 
+  "我在不确定情境下也能做出判断并行动。", 
+  "我经常从跨领域吸收灵感（如技术×设计）。", 
+  "当原有路径受阻时，我能灵活重组资源与策略。", 
+  "我能在讨论中提出建设性的反对意见。", 
+  "我能敏锐察觉到趋势或环境中的微小变化。", 
+  "我善于总结迭代，每次做得更好。", 
+  "我会为团队生成不同层次的备选方案。",
+  
+  // 执行力维度 (17-32)
+  "我能把任务拆解为明确的里程碑与负责人。", 
+  "我会按承诺的时间交付成果。", 
+  "我会为关键流程设置检查清单与质检点。", 
+  "当优先级变化时，我能迅速调整排期而不乱。", 
+  "我能清晰表达『目标—路径—结果』的逻辑。", 
+  "我会定期回顾风险并准备备选方案。", 
+  "我擅长把会议产出落实为可执行的行动项。", 
+  "我的个人节奏稳定，不因琐事打乱。", 
+  "我能在多任务并行时保持清晰的切换。", 
+  "我能推动跨部门对齐，保障闭环交付。", 
+  "我会把经验沉淀成文档或模板，便于复用。", 
+  "我能对自己和团队的进度进行可视化跟踪。", 
+  "我遵循约定流程，同时根据反馈持续优化。", 
+  "我能在压力之下保持有序推进。", 
+  "我对细节质量有稳定、清晰的标准。", 
+  "我能在有限资源下做出合理取舍并执行。",
+  
+  // 影响力维度 (33-48) - 增加反向题目
+  "我能快速带动团队情绪，形成行动合力。", 
+  "我在公开场合表达自如，能影响更多人。", 
+  "我愿意主动承担更具挑战的目标。", 
+  "我能够在冲突中保持推进，避免僵局。", 
+  "我常向他人传递热情和信心。", 
+  "在需要做决定时，我敢于拍板并承担责任。", 
+  "我愿意主动争取资源，推动事情发生。", 
+  "我能把复杂内容讲得有画面感、易理解。", 
+  "我擅长在不同场景里切换沟通风格。", 
+  "即使意见不合，我也能维持互动的积极氛围。", 
+  "我做事有速度感，能形成节奏带动。", 
+  "面对质疑，我愿意展开开放、坦诚的讨论。", 
+  "我能把个人目标与团队目标对齐并放大。", 
+  "我能在关键时刻让大家聚焦重点。", 
+  "我擅长用故事或案例来影响听众。", 
+  "我倾向于避免在团队中表达不同意见。", // 反向题目
+  
+  // 协作力维度 (49-64) - 增加反向题目
+  "我愿意从他人视角理解他们的诉求与限制。", 
+  "我会主动给予同事正向反馈与及时帮助。", 
+  "当产生分歧时，我愿意先倾听再表达。", 
+  "我在协作中尊重边界并清晰约定。", 
+  "我能在团队中建立互信与安全感。", 
+  "我会识别并连接适合合作的人与资源。", 
+  "我能将不同意见整合成兼顾各方的方案。", 
+  "我善于在冲突中降温并找到共同点。", 
+  "我愿意为团队整体结果承担不确定性。", 
+  "我能让合作变得更高效而非更复杂。", 
+  "我在跨文化/跨背景的团队中协作顺畅。", 
+  "我能让知识在团队内更快地流动起来。", 
+  "我尊重承诺并保持透明沟通。", 
+  "我能够对他人的情绪变化及时作出回应。", 
+  "我建立长期稳定的人际关系网络。", 
+  "我更喜欢独立完成工作，而不是团队协作。", // 反向题目
+  
+  // 韧性维度 (65-80) - 增加反向题目
+  "面对压力，我能稳定自我并继续推进任务。", 
+  "我能客观看待挫折，把它转化为经验。", 
+  "遇到失败时，我恢复得比较快。", 
+  "我能辨识自己的情绪并调节到可用状态。", 
+  "我遇到不确定时，仍能保持基本的作息与效率。", 
+  "在高负荷时期，我会用健康方式补充能量。", 
+  "我不会把一时情绪带到重要决策里。", 
+  "我能在长周期目标上保持耐心与一致性。", 
+  "我能在关系摩擦后修复并继续合作。", 
+  "我能在长期压力中维持生活与工作的平衡。", 
+  "我遇到反复的外部变化也能逐步适应。", 
+  "我能在高期望与严格标准中保持自我接纳。", 
+  "我能识别情绪触发点并提前做准备。", 
+  "我能在关键时刻保持冷静与清晰。", 
+  "我相信自己能逐步把复杂问题处理好。", 
+  "遇到挫折时，我容易感到沮丧并影响后续表现。" // 反向题目
+];
+const box=document.getElementById('qBox');
+Q.forEach((t,i)=>{
+  const el=document.createElement('div'); el.className='q';
+  el.innerHTML=`<div><b>Q${i+1}.</b> ${t}</div>
+  <div style='display:flex;gap:12px;align-items:center;margin-top:6px'>
+    <span>1</span><input type='range' min='1' max='7' value='4' id='r_${i}' style='flex:1'><span>7</span>
+    <span class='pill' id='v_${i}'>4</span>
+  </div>`; box.appendChild(el);
+  const r=el.querySelector('#r_'+i), v=el.querySelector('#v_'+i); r.oninput=()=> v.textContent=r.value;
+});
+
+
+
+// 评分映射与保存（改造为Big Five中枢）
+const BF_KEYS = Q.map((_,i)=> ['O','C','E','A','N'][i%5]); // 修正ES为N（神经质）
+const norm = v => (v-1)/6*100; const avg = arr => arr.reduce((a,b)=>a+b,0)/(arr.length||1);
+
+// 数值合法化函数
+function clampBF(value) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+// 计算Big Five，确保输出为[O,C,E,A,N]数组格式
+function computeBF(ans){ 
+  const b={O:[],C:[],E:[],A:[],N:[]}; 
+  ans.forEach((v,i)=> b[BF_KEYS[i]].push(norm(v))); 
+  const bfObj = Object.fromEntries(Object.entries(b).map(([k,a])=>[k,clampBF(avg(a))])); 
+  return [bfObj.O, bfObj.C, bfObj.E, bfObj.A, bfObj.N]; // 返回数组格式
+}
+
+// 使用bf_mappings.js的映射函数（兼容性包装）
+function structFromBF(bf){ 
+  // 确保bf_mappings.js已加载
+  if (window.bf_to_struct8) {
+    return window.bf_to_struct8(bf);
+  } else if (window.BFMappings && window.BFMappings.bf_to_struct8) {
+    return window.BFMappings.bf_to_struct8(bf);
+  } else {
+    // 降级到原有逻辑（临时兼容）
+    console.warn('bf_mappings.js not loaded, using fallback');
+    const [O,C,E,A,N] = bf;
+    return [ 0.50*C+0.30*N+0.20*O, 0.80*N+0.20*C, 0.60*O+0.40*N, 0.70*C+0.30*N, 0.50*N+0.30*C+0.20*A, 0.60*E+0.40*O, 0.60*O+0.40*E, 0.60*E+0.40*A ];
+  }
+}
+function ecology16FromStruct(S){ const v=i=>S[i]; return [ (v(7)+v(1))/2,(v(7)+v(3)+v(0))/3,(v(1)+v(4)+v(6))/3,(v(5)+v(7)+v(0))/3,(v(3)+v(0)+v(4))/3,(v(4)+v(6)+v(3))/3,(v(6)+v(2))/2,(v(3)+v(1))/2,(v(2)+v(6))/2,(v(3)+v(2))/2,(v(2)+v(3)+v(0))/3,(v(2)+v(6))/2,(v(5)+v(7))/2,(v(5)+v(1)+v(2))/3,(v(6)+v(7)+v(1))/3,(v(4)+v(1)+v(0))/3 ]; }
+function ecology8From16(e16){ const ECO16=['信任速度','协作质量','关系韧性','影响半径','目标推进力','节奏管理','应变效率','落地闭环度','洞察敏锐度','表达条理度','信息整合度','改进驱动力','能量外放','冲突风格','环境贴合度','幸福感基础']; const MAP={'信任速度':7,'协作质量':7,'关系韧性':4,'影响半径':5,'目标推进力':3,'节奏管理':4,'应变效率':6,'落地闭环度':3,'洞察敏锐度':2,'表达条理度':2,'信息整合度':2,'改进驱动力':6,'能量外放':5,'冲突风格':1,'环境贴合度':6,'幸福感基础':4}; const s=Array(8).fill(0),c=Array(8).fill(0); e16.forEach((v,i)=>{ const a=MAP[ECO16[i]]; s[a]+=v;c[a]++; }); return s.map((x,i)=> c[i]?x/c[i]:0 ); }
+function persistStep1(){
+  const ans=Q.map((_,i)=> Number(document.getElementById('r_'+i).value));
+  
+  // 计算Big Five作为新的中枢数据
+  const bf=computeBF(ans); 
+  
+  // 使用bf_mappings.js进行映射（兼容双写）
+  const S=structFromBF(bf); 
+  const E16=ecology16FromStruct(S); 
+  const E8=ecology8From16(E16);
+  
+  // 计算pot_self（8维潜力自评）
+  let pot_self;
+  if (window.bf_to_pot8) {
+    pot_self = window.bf_to_pot8(bf);
+  } else if (window.BFMappings && window.BFMappings.bf_to_pot8) {
+    pot_self = window.BFMappings.bf_to_pot8(bf);
+  } else {
+    console.warn('bf_to_pot8 function not available, using fallback');
+    // 简单的降级逻辑：基于Big Five生成8维潜力
+    const [O,C,E,A,N] = bf;
+    pot_self = [
+      Math.round(0.35*O + 0.25*C + 0.20*E + 0.05*A - 0.15*N + 50), // 战略思维
+      Math.round(0.50*O + 0.10*C + 0.20*E + 0.05*A - 0.10*N + 50), // 创新潜力
+      Math.round(0.20*O + 0.20*C + 0.40*E + 0.15*A - 0.20*N + 50), // 领导潜力
+      Math.round(0.45*O + 0.20*C + 0.15*E + 0.15*A - 0.10*N + 50), // 学习潜力
+      Math.round(0.25*O + 0.15*C + 0.25*E + 0.20*A - 0.25*N + 50), // 适应潜力
+      Math.round(0.10*O + 0.15*C + 0.30*E + 0.40*A - 0.15*N + 50), // 协作潜力
+      Math.round(0.15*O + 0.45*C + 0.20*E + 0.10*A - 0.25*N + 50), // 执行潜力
+      Math.round(0.30*O + 0.20*C + 0.25*E + 0.20*A - 0.30*N + 50)  // 成长潜力
+    ].map(v => Math.max(0, Math.min(100, v)));
+  }
+  
+  // 保存数据到LocalStorage
+  setNS('step1_answers', ans);
+  setNS('step1_bigfive', bf); // 新中枢
+  setNS('step1_struct', S);   // 兼容双写
+  setNS('step1_eco16', E16);  // 兼容双写
+  setNS('step1_eco', E8);     // 兼容双写
+  setNS('pot_self_raw', pot_self); // 8维潜力自评
+  
+  // 添加元信息
+  const meta = {
+    savedAt: new Date().toISOString(),
+    version: '2.1-pot-self-added',
+    algorithm: 'big-five-first'
+  };
+  setNS('step1_meta', meta);
+  
+  try{
+    if(window.PSYS){ 
+      PSYS.saveStep('step1', { 
+        answers: ans, 
+        bigfive: bf,    // 新中枢字段
+        struct: S, 
+        eco16: E16, 
+        eco8: E8, 
+        pot_self: pot_self, // 8维潜力自评
+        meta: meta,     // 元信息
+        savedAt: meta.savedAt 
+      }); 
+    }
+  }catch(err){ console.warn('PSYS.saveStep failed', err); }
+  return {ans,bf,S,E16,E8,pot_self};
+}
+
+function handleSaveStep1(next){
+  persistStep1();
+  alert('Step1 已保存');
+  if(next){ location.href = next; }
+}
+
+document.getElementById('saveNextBtn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep1('step2_linked.html');
+});
+document.getElementById('saveHubBtn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep1('hub.html');
+});
+document.getElementById('saveStep3Btn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep1('step3_linked.html');
+});
+document.getElementById('saveStep4Btn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep1('step4_linked.html');
+});
+document.getElementById('saveDashboardBtn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  handleSaveStep1('dashboard_linked.html');
+});
+
+// 随机填写功能
+document.getElementById('randomFillBtn').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  Q.forEach((_, i) => {
+    const randomValue = Math.floor(Math.random() * 7) + 1; // 1-7随机值
+    const slider = document.getElementById('r_' + i);
+    const pill = document.getElementById('v_' + i);
+    if (slider) { slider.value = randomValue; }
+    if (pill) { pill.textContent = randomValue; }
+  });
+  alert('已随机填写所有题目！');
+});
+</script>
+</div>
+<script>
+(function(){
+  const NS='psys:v1';
+  
+  function qs(k){
+    const u=new URL(location.href);
+    return u.searchParams.get(k);
+  }
+  function setMetaFromUrl(){
+    const teamId=qs('teamId'), userId=qs('userId'), runId=qs('runId');
+    if(teamId && userId && runId){
+      sessionStorage.setItem(`${NS}:currentSession`, JSON.stringify({teamId,userId,runId}));
+      return true;
+    }
+    return false;
+  }
+  function getMeta(){
+    try{
+      const raw=sessionStorage.getItem(`${NS}:currentSession`);
+      return raw?JSON.parse(raw):null;
+    }catch{ return null; }
+  }
+  setMetaFromUrl();
+  const meta=getMeta();
+  
+  // 将 hydrateStep1 函数移到 IIFE 内部
+  function hydrateStep1(meta){
+    if(!window.PSYS || !meta) return;
+    try{
+      const sess = PSYS.getSession(meta.teamId, meta.userId, meta.runId);
+      const payload = sess?.step1 || {};
+      const saved = Array.isArray(payload.answers) ? payload.answers : null;
+      if(saved){
+        setNS('step1_answers', saved);
+        saved.forEach((val, idx)=>{
+          const slider = document.getElementById('r_'+idx);
+          const pill = document.getElementById('v_'+idx);
+          if(slider){ slider.value = val; }
+          if(pill){ pill.textContent = val; }
+        });
+        if(payload.bigfive){ setNS('step1_bigfive', payload.bigfive); }
+        if(payload.struct){ setNS('step1_struct', payload.struct); }
+        if(payload.eco16){ setNS('step1_eco16', payload.eco16); }
+        if(payload.eco8){ setNS('step1_eco', payload.eco8); }
+        if(payload.pot_self){ setNS('pot_self_raw', payload.pot_self); }
+      } else {
+        // 清理本地暂存，确保新会话从默认值开始
+        localStorage.removeItem('step1_answers');
+        localStorage.removeItem('step1_bigfive');
+        localStorage.removeItem('step1_struct');
+        localStorage.removeItem('step1_eco16');
+        localStorage.removeItem('step1_eco');
+        localStorage.removeItem('pot_self_raw');
+      }
+    }catch(err){ console.warn('hydrate step1 failed', err); }
+  }
+  
+  if(!meta){
+    // 无会话时允许本地模式，不强制跳转
+    console.warn('No current session; running in LOCAL mode');
+    hydrateStep1(null); // 本地模式
+    // 显示本地模式角标
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#8b4513;border:1px solid #a0522d;color:#fff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='本地模式 · 未关联团队';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  } else {
+    hydrateStep1(meta);
+    // mount a small corner badge
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#0e1633;border:1px solid #1c2447;color:#e7ecff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='团队/成员已关联 · 安全会话';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  }
+
+  // Provide manual hooks
+  window.psysMarkStepCompleted = function(partName){
+    if(!window.PSYS){ console.warn('PSYS not loaded'); return; }
+    PSYS.saveStep(partName, {manual:true, savedAt: new Date().toISOString()});
+  };
+})();
+</script>
+
+</body></html>

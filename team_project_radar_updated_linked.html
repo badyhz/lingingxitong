@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>团队模型 · 叠加雷达（个人映射→团队14维 / 团队潜力8维 / 行业融合）</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<!-- 若你有 hub 的 storage.js，请保留，否则可删除下一行 -->
+<script src="./storage.js"></script>
+<style>
+:root{
+  --bg:#0b1020;--card:#121833;--ink:#e7ecff;--muted:#9aa4c9;--line:#1c2447;
+  --good:#4ade80;--warn:#f59f0b;--bad:#ff5c9a;--hl:#2a3b7a
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:linear-gradient(180deg,#0b1020,#0f1431);color:var(--ink);font-family:'Noto Sans SC',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+.container{max-width:1200px;margin:24px auto;padding:0 16px}
+h1{font-size:22px;margin:0 0 12px}
+h2{font-size:18px;margin:18px 0 8px;color:#e7ecff}
+.card{
+  background:linear-gradient(180deg,#10173a 0%, #0e1430 100%);
+  border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;
+  box-shadow:0 10px 30px rgba(0,0,0,.24)
+}
+.row{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:980px){.row{grid-template-columns:1fr 1fr}}
+.caption{color:var(--muted);font-size:12px;margin-top:6px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0 12px}
+select,button,input[type="number"]{
+  background:#0e1430;color:#e7ecff;border:1px solid var(--line);
+  border-radius:10px;padding:8px 10px;font-size:13px
+}
+label{font-size:13px;color:var(--muted);margin-right:8px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.badge{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:#0e1430;color:#cfe0ff}
+canvas{width:100%;height:420px;max-height:54vh}
+.small{font-size:12px;color:var(--muted)}
+hr{border:none;border-top:1px dashed #24305b;margin:10px 0}
+.table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.table th,.table td{border-bottom:1px solid #24305b;padding:6px 8px;text-align:left}
+.table th{color:#cfe0ff;font-weight:600}
+.flex{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.right{margin-left:auto}
+@media (max-width:1180px){
+  .container{padding:0 12px}
+  .toolbar{gap:6px}
+  canvas{max-height:60vh}
+}
+@media (max-width:1024px){
+  .container{padding:0 10px}
+  .toolbar{flex-direction:column;align-items:flex-start}
+  .card{padding:12px}
+  h1{font-size:20px}
+  h2{font-size:17px}
+  canvas{height:420px;max-height:65vh}
+}
+@media (max-width:820px){
+  .container{padding:0 8px}
+  .toolbar button,
+  .toolbar select{width:100%}
+  .flex{flex-direction:column;align-items:flex-start}
+  canvas{height:400px}
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>团队模型 · 叠加雷达</h1>
+
+  <!-- 顶部工具条：返回hub / 选择团队 / 读取 / 模拟 / 模板选择 / 纳入人数显示 -->
+  <div class="card">
+    <div class="toolbar">
+      <button id="backHubBtn">返回 Hub</button>
+
+      <label>选择团队：
+        <select id="teamSelect">
+          <option value="">（扫描本地可用团队）</option>
+        </select>
+      </label>
+      <button id="readHubBtn">读取团队数据</button>
+      <button id="regenBtn">生成模拟数据</button>
+
+      <label>团队完美模板：
+        <select id="teamTemplateSelect">
+          <option value="balanced">2.1 均衡稳健型</option>
+          <option value="execution">2.2 执行铁军型</option>
+          <option value="innovation">2.3 创新研究型</option>
+          <option value="brand">2.4 品牌叙事型</option>
+          <option value="consulting">2.5 咨询服务型</option>
+          <option value="venture">2.6 创业敏捷型</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="showTeamTemplate" checked> 叠加模板</label>
+      <div class="right badges" id="topBadges"></div>
+    </div>
+    <div class="small">提示：从 Hub 打开本页面时可携带 teamId；若需切换团队，在下拉框选择后点击“读取团队数据”。如无数据，可用“生成模拟数据”测试。</div>
+  </div>
+
+  <!-- 1-1 个人→团队14维 -->
+  <div class="card">
+    <h2>1-1 个人映射 → 团队 <b>14维</b> 叠加（个人≤12条 + 团队均值 + 团队模板）</h2>
+    <canvas id="team14Chart"></canvas>
+    <div class="caption">成员的生态16/潜力8按映射规则合成为团队14维。叠加个人曲线（≤12）+ 团队均值，可选叠加理想模板。</div>
+  </div>
+
+  <!-- 1-2 个人→团队潜力8维 -->
+  <div class="card">
+    <h2>1-2 个人映射 → 团队 <b>潜力8维</b> 叠加（个人≤12条 + 团队均值 + 潜力模板）</h2>
+    <canvas id="teamPot8Chart"></canvas>
+    <div class="caption">潜力轴：领导力 / 创新 / 品牌·审美 / 学习·迁移 / 影响半径 / 创业 / 科研 / 可持续度。下表显示当前模板目标。</div>
+    <table class="table" id="potTemplateTable"></table>
+  </div>
+
+  <!-- 1-3 团队模型14维：极值提示 + 行业融合 -->
+  <div class="card">
+    <div class="flex" style="justify-content:space-between">
+      <h2>1-3 团队模型（14维）· 当前（极值提示） + 团队模板 + 行业融合</h2>
+      <div class="toolbar">
+        <label>主业：
+          <select id="industrySelect"></select>
+        </label>
+        <label>副业：
+          <select id="transIndustrySelect"></select>
+        </label>
+        <label><input type="checkbox" id="showFusion" checked> 显示融合模型</label>
+        <label>α主业：<input type="number" id="wMain" value="0.4" step="0.05" min="0" max="1" style="width:70px"></label>
+        <label>β副业：<input type="number" id="wTrans" value="0.6" step="0.05" min="0" max="1" style="width:70px"></label>
+        <label>γ基数：<input type="number" id="gamma" value="0.15" step="0.05" min="0" max="0.5" style="width:70px"></label>
+      </div>
+    </div>
+    <div class="badges" id="teamBadges"></div>
+    <canvas id="teamModelChart"></canvas>
+    <div class="caption">极值口径：A组看最低 m（底线）、B组看最高 M（尖刀）、C组取 p20 与 M 的平均；Tooltip 显示 m/p20/μ/M/覆盖率。</div>
+    <hr/>
+    <div class="badges" id="fusionKV"></div>
+    <table class="table" id="fusionTable"></table>
+  </div>
+
+  <!-- 新增：条形图和量化分值展示区域 -->
+  <div class="card">
+    <h2>数据可视化 · 条形图与量化分值</h2>
+    
+    <!-- 条形图展示区域 -->
+    <div style="margin-bottom: 20px;">
+      <h3>条形图展示</h3>
+      <div class="toolbar">
+        <label>选择图表：
+          <select id="chartTypeSelect">
+            <option value="team14">团队14维数据</option>
+            <option value="teamPot8">团队潜力8维数据</option>
+            <option value="teamModel">团队模型14维数据</option>
+          </select>
+        </label>
+        <label>显示类型：
+          <select id="displayTypeSelect">
+            <option value="mean">团队均值</option>
+            <option value="current">当前数据</option>
+            <option value="all">全部对比</option>
+          </select>
+        </label>
+      </div>
+      <canvas id="barChart" style="height: 400px;"></canvas>
+      <div class="caption">条形图展示各维度的具体数值，便于直观比较和分析。</div>
+    </div>
+
+    <!-- 量化分值展示表格 -->
+    <div>
+      <h3>量化分值详细数据</h3>
+      <div class="toolbar">
+        <button id="exportDataBtn">导出数据</button>
+        <button id="toggleAllDataBtn">显示/隐藏全部数据</button>
+      </div>
+      
+      <!-- 团队14维数据表 -->
+      <h4>团队14维数据</h4>
+      <table class="table" id="team14DataTable">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>团队均值</th>
+            <th>最小值</th>
+            <th>P20值</th>
+            <th>最大值</th>
+            <th>覆盖率≥70%</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <!-- 团队潜力8维数据表 -->
+      <h4>团队潜力8维数据</h4>
+      <table class="table" id="teamPot8DataTable">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>团队均值</th>
+            <th>最小值</th>
+            <th>P20值</th>
+            <th>最大值</th>
+            <th>覆盖率≥70%</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <!-- 团队模型14维数据表 -->
+      <h4>团队模型14维数据</h4>
+      <table class="table" id="teamModelDataTable">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>当前值</th>
+            <th>最小值</th>
+            <th>P20值</th>
+            <th>最大值</th>
+            <th>覆盖率≥70%</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <!-- 个人详细数据表（可折叠） -->
+      <div id="individualDataSection" style="display: none;">
+        <h4>个人详细数据</h4>
+        <table class="table" id="individualDataTable">
+          <thead>
+            <tr>
+              <th>成员</th>
+              <th>维度</th>
+              <th>14维映射值</th>
+              <th>潜力8维映射值</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 新增功能区域 -->
+<div class="container mt-4">
+  <!-- 多维度数据对比展示 -->
+  <div class="card">
+    <h2>📊 多维度数据对比展示</h2>
+    <div class="toolbar">
+      <label>对比类型：
+        <select id="comparisonType">
+          <option value="team_vs_individual">团队均值 vs 个人数据</option>
+          <option value="dimensions_ranking">维度排名对比</option>
+          <option value="strength_weakness">优势劣势分析</option>
+        </select>
+      </label>
+      <label>维度选择：
+        <select id="comparisonDimension">
+          <option value="team14">团队14维</option>
+          <option value="teamPot8">团队潜力8维</option>
+        </select>
+      </label>
+      <button onclick="generateComparison()">生成对比分析</button>
+      <button onclick="exportComparison()">导出对比数据</button>
+    </div>
+    <div id="comparisonChart" style="height: 400px; margin-top: 12px;">
+      <canvas id="comparisonCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- 详细文字分析内容 -->
+  <div class="card">
+    <h2>📝 详细文字分析内容</h2>
+    <div class="toolbar">
+      <button onclick="generateTeamAnalysis()">团队整体分析</button>
+      <button onclick="generateStrengthAnalysis()">优势分析</button>
+      <button onclick="generateImprovementAnalysis()">改进建议</button>
+      <div class="right">
+        <button onclick="exportAnalysis()">导出分析报告</button>
+        <button onclick="clearAnalysis()">清空内容</button>
+      </div>
+    </div>
+    <div id="analysisContent" style="min-height: 300px; background: linear-gradient(180deg, #0e1430 0%, #0b1020 100%); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 12px; font-size: 14px; line-height: 1.6;">
+      <div style="color: var(--muted); text-align: center; padding-top: 120px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">📊</div>
+        <div>点击上方按钮生成相应的分析内容...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 便于AI生成分析报告的数据支持 -->
+  <div class="card">
+    <h2>🤖 AI分析报告数据支持</h2>
+    <div class="toolbar">
+      <label>数据格式：
+        <select id="aiDataFormat">
+          <option value="json">JSON格式</option>
+          <option value="csv">CSV格式</option>
+          <option value="structured">结构化文本</option>
+        </select>
+      </label>
+      <label>数据范围：
+        <select id="aiDataScope">
+          <option value="complete">完整数据集</option>
+          <option value="summary">摘要数据</option>
+          <option value="key_metrics">关键指标</option>
+        </select>
+      </label>
+      <div class="right">
+        <button onclick="generateAIData()">生成AI数据</button>
+        <button onclick="copyAIData()">复制数据</button>
+        <button onclick="downloadAIData()">下载数据文件</button>
+      </div>
+    </div>
+    <div id="aiDataPreview" style="min-height: 200px; background: linear-gradient(180deg, #0e1430 0%, #0b1020 100%); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 12px; font-family: 'Courier New', monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap;">
+      <div style="color: var(--muted); text-align: center; padding-top: 60px;">
+        <div style="font-size: 36px; margin-bottom: 12px;">🤖</div>
+        <div>AI分析数据将在这里显示...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ====== 基础常量 ====== */
+const P = window.PSYS || null;
+
+const ECO16 = ['信任启动度','协作质量','关系韧性','影响半径','目标推进力','节奏管理','应变效率','幸福感','信息透明度','决策效率','创造力','结构思维','边界与主权','现实校准','自我驱动','学习氛围'];
+const POT8  = ['领导潜力','创新潜力','艺术潜力','学习潜力','社交潜力','创业潜力','科研潜力','幸福潜力'];
+const TEAM14 = ['情绪稳定','协作质量','信任速度','节奏管理','应变效率','可持续度','目标推进力','领导力','创新潜力','影响半径','创业潜力','学习与迁移','科研深度','品牌/审美'];
+const AXIS_TYPE_TEAM = {
+  '情绪稳定':'A','协作质量':'A','信任速度':'A','节奏管理':'A','应变效率':'A','可持续度':'A',
+  '目标推进力':'B','领导力':'B','创新潜力':'B','影响半径':'B','创业潜力':'B',
+  '学习与迁移':'C','科研深度':'C','品牌/审美':'C'
+};
+const BLADE_AXES=['目标推进力','领导力','创新潜力'];
+const BASELINE_AXES=['情绪稳定','协作质量','信任速度'];
+
+/* ====== 团队模板（14维） ====== */
+const TEAM_TEMPLATES={
+  balanced:{name:'均衡稳健型',values:[72,74,72,73,74,72,84,83,83,78,80,74,72,74]},
+  execution:{name:'执行铁军型',values:[68,72,72,75,74,68,88,85,78,80,82,70,68,70]},
+  innovation:{name:'创新研究型',values:[70,72,70,72,74,70,80,82,88,75,80,80,86,68]},
+  brand:{name:'品牌叙事型',values:[70,72,70,72,70,72,78,80,82,86,78,72,65,88]},
+  consulting:{name:'咨询服务型',values:[74,78,76,76,74,72,80,85,72,78,74,78,70,76]},
+  venture:{name:'创业敏捷型',values:[68,70,70,72,72,68,84,84,82,82,88,76,70,78]}
+};
+
+/* ====== 团队潜力模板（8维） ====== */
+const TEAM_POT8_AXES=['领导力','创新潜力','品牌/审美','学习与迁移','影响半径','创业潜力','科研深度','可持续度'];
+const TEAM_POT_TEMPLATES={
+  balanced:{name:'均衡稳健型',values:[82,82,78,78,78,80,76,74]},
+  execution:{name:'执行铁军型',values:[84,78,72,72,76,84,70,70]},
+  innovation:{name:'创新研究型',values:[82,88,72,80,76,80,86,70]},
+  brand:{name:'品牌叙事型',values:[80,82,88,74,84,78,70,72]},
+  consulting:{name:'咨询服务型',values:[85,74,76,78,78,74,72,72]},
+  venture:{name:'创业敏捷型',values:[84,82,80,76,82,88,72,70]}
+};
+
+/* ====== 行业基线（TEAM14，用于融合） ====== */
+const INDUSTRY_TEAM_BASE={
+  'SaaS/DevTools':[72,76,74,74,74,72,84,82,80,78,78,78,72,70],
+  'AI/DeepTech':[72,72,70,72,74,72,80,82,86,76,80,82,86,68],
+  '电商/供应链':[70,76,72,76,74,72,84,80,76,78,78,72,68,68],
+  'FinTech':[74,78,74,74,74,72,80,82,78,76,76,74,76,68],
+  '制造/工业':[74,75,72,78,76,74,82,82,76,72,76,72,74,66],
+  '品牌/设计/内容':[70,72,70,72,70,72,78,80,82,86,76,72,66,88],
+  '专业服务/咨询':[74,78,76,76,74,72,80,85,72,78,74,78,70,76],
+  '教育':[72,78,74,74,72,72,78,80,76,74,72,80,66,76],
+  '游戏':[70,72,70,72,70,70,80,80,84,84,78,72,66,86],
+  '医疗/生物':[72,74,70,72,74,72,78,80,76,70,72,74,86,68],
+  '地产/不动产':[72,75,72,74,72,72,82,84,72,78,76,70,68,74]
+};
+
+/* ====== hub→eco16 名称映射（仅当你用 storage.js 的 step3/step2 数据时会用到） ====== */
+const SOURCE_STEP3_ECO16=['信任速度','协作质量','关系韧性','影响半径','目标推进力','节奏管理','应变效率','落地闭环度','洞察敏锐度','表达条理度','信息整合度','改进驱动力','能量外放','冲突风格','环境贴合度','幸福感基础'];
+const ECO16_NAME_MAP={
+  '信任启动度':['信任速度'],
+  '协作质量':['协作质量'],
+  '关系韧性':['关系韧性'],
+  '影响半径':['影响半径'],
+  '目标推进力':['目标推进力'],
+  '节奏管理':['节奏管理'],
+  '应变效率':['应变效率'],
+  '幸福感':['幸福感基础'],
+  '信息透明度':['信息整合度','表达条理度'],
+  '决策效率':['落地闭环度','信息整合度'],
+  '创造力':['能量外放','洞察敏锐度'],
+  '结构思维':['表达条理度','信息整合度'],
+  '边界与主权':['环境贴合度','冲突风格'],
+  '现实校准':['改进驱动力','洞察敏锐度'],
+  '自我驱动':['能量外放','目标推进力'],
+  '学习氛围':['洞察敏锐度','环境贴合度']
+};
+const POT8_DERIVED_INDEX={
+  '领导潜力':[4,5,7],
+  '创新潜力':[2,6,5],
+  '艺术潜力':[5],
+  '学习潜力':[0,6,2],
+  '社交潜力':[3,7],
+  '创业潜力':[3,5,6],
+  '科研潜力':[0,2],
+  '幸福潜力':[1,4]
+};
+
+/* ====== 工具函数 ====== */
+function randn(mu=0,sigma=1){const u=Math.random()||1e-9,v=Math.random()||1e-9;return mu+sigma*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function clamp(v,min=0,max=100){return Math.max(min,Math.min(max,v))}
+function getUrlParam(k){ return new URL(location.href).searchParams.get(k); }
+function getSessionMeta(){ try{ const raw=sessionStorage.getItem('psys:v1:currentSession'); return raw?JSON.parse(raw):null; }catch{return null;} }
+function ensureSessionTeam(teamId){
+  if(!teamId) return;
+  const meta=getSessionMeta()||{};
+  if(meta.teamId===teamId){
+    if(!meta.runId) meta.runId=`team_${Date.now()}`;
+    sessionStorage.setItem('psys:v1:currentSession', JSON.stringify(meta));
+    return;
+  }
+  sessionStorage.setItem('psys:v1:currentSession', JSON.stringify({teamId, runId:`team_${Date.now()}` }));
+}
+
+/* ====== 关键：字段别名对齐 + 刻度归一化（统一到 0–100） ====== */
+// 常见别名 → 统一到 ECO16 键
+const ECO_SYNONYM = {
+  '信任速度':'信任启动度',
+  '幸福感基础':'幸福感',
+  '落地闭环度':'决策效率',
+  '洞察敏锐度':'现实校准',
+  '表达条理度':'结构思维',
+  '信息透明度':'信息透明度',
+  '能量外放':'创造力',
+  '环境贴合度':'学习氛围',
+  '冲突风格':'边界与主权'
+};
+
+// 自动识别刻度并返回 0–100 标准化函数
+function detectScaler(obj){
+  const vals = Object.values(obj||{}).map(Number).filter(v=>isFinite(v));
+  if (!vals.length) return v=>v;
+  const max = Math.max(...vals);
+  // 0–1 / 0–1.5
+  if (max <= 1.5) return v => v * 100;
+  // 1–5 / 0–5
+  if (max <= 5.5) return v => (v / 5) * 100;
+  // 1–7 / 0–7
+  if (max <= 7.5) return v => (v / 7) * 100;
+  // 1–9 / 0–9
+  if (max <= 9.5) return v => (v / 9) * 100;
+  // 0–10
+  if (max <= 10.5) return v => (v / 10) * 100;
+  // 0–20
+  if (max <= 20.5) return v => (v / 20) * 100;
+  // 已是百分制或更大
+  return v => Math.min(100, v);
+}
+
+function sanitizeMetricMap(obj, keys){
+  const values=Object.values(obj||{}).map(Number).filter(v=>isFinite(v));
+  const fallback=values.length? values.reduce((a,b)=>a+b,0)/values.length : 60;
+  const out={};
+  keys.forEach(k=>{
+    const v=obj && typeof obj[k]==='number' && isFinite(obj[k]) ? Number(obj[k]) : fallback;
+    out[k]=Math.round(clamp(v));
+  });
+  return out;
+}
+
+// 归一化单个人（对齐别名 → 检测刻度 → 百分制）
+function normalizePerson(p){
+  // 键名对齐（只处理 ECO16 中出现的）
+  const ecoRaw = {...(p.eco||{})};
+  Object.entries(ECO_SYNONYM).forEach(([src,dst])=>{
+    if (ecoRaw[src]!=null && ecoRaw[dst]==null) ecoRaw[dst]=ecoRaw[src];
+  });
+
+  const ecoScale = detectScaler(ecoRaw);
+  const potScale = detectScaler(p.pot||{});
+
+  const eco = {};
+  ECO16.forEach(k=>{
+    const v = Number(ecoRaw[k]);
+    if (isFinite(v)) eco[k] = Math.round(clamp(ecoScale(v)));
+  });
+
+  const pot = {};
+  POT8.forEach(k=>{
+    const v = Number((p.pot||{})[k]);
+    if (isFinite(v)) pot[k] = Math.round(clamp(potScale(v)));
+  });
+
+  return { ...p, eco: sanitizeMetricMap(eco, ECO16), pot: sanitizeMetricMap(pot, POT8) };
+}
+
+// 归一化整个团队
+function normalizeTeam(data){
+  const people = (data.people||[]).map(normalizePerson);
+  return { ...data, people };
+}
+
+/* ====== 从 hub 会话拼装个人 eco/pot（可选） ====== */
+function mapEcoFromSession(sess){
+  // 优先使用最终口径数据
+  const arr = Array.isArray(sess?.computed?.ecology16) ? sess.computed.ecology16 : null;
+  if(arr && arr.length===16){
+    const eco = {};
+    ECO16.forEach((name,i)=> eco[name] = arr[i]);
+    return sanitizeMetricMap(eco, ECO16);
+  }
+  
+  // 兜底：原有逻辑（step3/step2）
+  const src=Array.isArray(sess?.step3?.eco16)? sess.step3.eco16 : Array.isArray(sess?.step2?.eco16Raw)? sess.step2.eco16Raw : null;
+  if(!src) return null;
+  const eco={};
+  ECO16.forEach(target=>{
+    const names=ECO16_NAME_MAP[target] || [target];
+    let sum=0,count=0;
+    names.forEach(name=>{
+      const idx=SOURCE_STEP3_ECO16.indexOf(name);
+      if(idx>=0 && src[idx]!=null && isFinite(src[idx])){ sum+=Number(src[idx]); count++; }
+    });
+    if(count) eco[target]=sum/count;
+  });
+  return sanitizeMetricMap(eco, ECO16);
+}
+function mapPotFromSession(sess){
+  // 优先使用最终口径数据
+  const arr = Array.isArray(sess?.computed?.potentialEnv8) ? sess.computed.potentialEnv8 : null;
+  if(arr && arr.length===8){
+    const pot = {};
+    POT8.forEach((name,i)=> pot[name] = arr[i]);
+    return sanitizeMetricMap(pot, POT8);
+  }
+  
+  // 兜底：原有逻辑（用step3.struct推导）
+  const struct=Array.isArray(sess?.step3?.struct)? sess.step3.struct : null;
+  if(!struct) return null;
+  const pot={};
+  Object.entries(POT8_DERIVED_INDEX).forEach(([name, idxs])=>{
+    let sum=0,count=0;
+    idxs.forEach(idx=>{
+      const v=struct[idx];
+      if(v!=null && isFinite(v)){ sum+=Number(v); count++; }
+    });
+    if(count) pot[name]=sum/count;
+  });
+  return sanitizeMetricMap(pot, POT8);
+}
+
+/* ====== 读取团队（hub/localStorage） ====== */
+function buildTeamFromSessions(teamId){
+  if(!P) return null;
+  try{
+    const users=P.getUsers(teamId)||[];
+    const people=[];
+    users.forEach(u=>{
+      if(u.hidden) return;
+      const meta=P.getLastSessionMetaForUser(teamId, u.userId);
+      if(!meta) return;
+      const sess=P.getSession(meta.teamId, meta.userId, meta.runId);
+      if(!sess) return;
+      const eco=mapEcoFromSession(sess) || sanitizeMetricMap({}, ECO16);
+      const pot=mapPotFromSession(sess) || sanitizeMetricMap({}, POT8);
+      people.push({ name:u.name || '成员', eco, pot });
+    });
+    return people.length? {people, industry:'SaaS/DevTools'} : null;
+  }catch(err){
+    console.warn('buildTeamFromSessions failed', err);
+    return null;
+  }
+}
+function readTeamFromLocalRecords(teamId){
+  if(!teamId) return null;
+  const explicit=[
+    `PSYS:TEAM:${teamId}:people`,
+    `PSYS_TEAM_${teamId}`,
+    `TEAM:${teamId}:people`,
+    `team:${teamId}:people`,
+    `PSYS_TEAM_PEOPLE_${teamId}`
+  ];
+  for(const k of explicit){
+    try{
+      const raw=localStorage.getItem(k); if(!raw) continue;
+      const obj=JSON.parse(raw);
+      if(Array.isArray(obj?.people) && obj.people[0]?.eco && obj.people[0]?.pot) return {people:obj.people};
+      if(Array.isArray(obj) && obj[0]?.eco && obj[0]?.pot) return {people:obj};
+      if(obj?.records && Array.isArray(obj.records)){
+        const filtered=obj.records.filter(x=> (x.teamId||x.teamID||x.team_id)===teamId && x.eco && x.pot);
+        if(filtered.length) return {people:filtered};
+      }
+    }catch{}
+  }
+  const global=['PSYS_TEAM_PEOPLE','TEAM_DATA_V1','DASHBOARD_DATA_V1','dashboard_people','dashboardData','peopleData','teamPeople','step_all_result'];
+  for(const k of global){
+    try{
+      const raw=localStorage.getItem(k); if(!raw) continue;
+      const obj=JSON.parse(raw);
+      const arr=Array.isArray(obj?.people)? obj.people : Array.isArray(obj)? obj : (obj?.records||[]);
+      if(Array.isArray(arr)){
+        const filtered=arr.filter(p=> (p.teamId||p.teamID||p.team_id)===teamId && p.eco && p.pot);
+        if(filtered.length) return {people:filtered};
+      }
+    }catch{}
+  }
+  return null;
+}
+function readTeamById(teamId){
+  return buildTeamFromSessions(teamId) || readTeamFromLocalRecords(teamId);
+}
+function tryReadTeamFromLocal(){
+  const keys=['PSYS_TEAM_PEOPLE','TEAM_DATA_V1','DASHBOARD_DATA_V1','dashboard_people','dashboardData','peopleData','teamPeople','step_all_result'];
+  for(const k of keys){
+    try{
+      const raw=localStorage.getItem(k); if(!raw) continue;
+      const obj=JSON.parse(raw);
+      if(Array.isArray(obj?.people) && obj.people[0]?.eco && obj.people[0]?.pot) return obj;
+      if(Array.isArray(obj) && obj[0]?.eco && obj[0]?.pot) return {people:obj};
+    }catch{}
+  }
+  return null;
+}
+
+/* ====== 团队发现（用于下拉） ====== */
+function discoverTeams(){
+  const found=new Map();
+  const add=(id,count,label)=>{
+    if(!id) return;
+    const entry=found.get(id);
+    if(entry){
+      entry.count=Math.max(entry.count,count||0);
+      if(label && !entry.label) entry.label=label;
+    }else{
+      found.set(id,{count:count||0,label:label||''});
+    }
+  };
+  if(P){
+    try{
+      (P.getTeams()||[]).forEach(team=>{
+        const members=P.getUsers(team.teamId)||[];
+        add(team.teamId, members.length, team.teamName);
+      });
+    }catch(err){ console.warn('discoverTeams:PSYS', err); }
+  }
+  const regexes=[
+    /^PSYS:TEAM:([^:]+):people$/,
+    /^PSYS_TEAM_([^:]+)$/,
+    /^TEAM:([^:]+):people$/,
+    /^team:([^:]+):people$/,
+    /^PSYS_TEAM_PEOPLE_([^:]+)$/
+  ];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    for(const re of regexes){
+      const m=k.match(re);
+      if(m){ add(m[1],0,''); break; }
+    }
+  }
+  const global=['PSYS_TEAM_PEOPLE','TEAM_DATA_V1','DASHBOARD_DATA_V1','dashboard_people','dashboardData','peopleData','teamPeople','step_all_result'];
+  for(const k of global){
+    try{
+      const raw=localStorage.getItem(k); if(!raw) continue;
+      const obj=JSON.parse(raw);
+      const arr=Array.isArray(obj?.people)? obj.people : Array.isArray(obj)? obj : (obj?.records||[]);
+      if(Array.isArray(arr)){
+        arr.forEach(p=>{
+          const id=p?.teamId||p?.teamID||p?.team_id;
+          if(id) add(String(id),0,'');
+        });
+      }
+    }catch{}
+  }
+  const list=Array.from(found.entries()).map(([id,info])=>({id, count:info.count, label:info.label||id}));
+  list.sort((a,b)=>a.label.localeCompare(b.label,'zh-CN'));
+  return list;
+}
+
+/* ====== 映射规则：个人→TEAM14 / 团队潜力8 ====== */
+const TEAM14_SOURCES={
+  '情绪稳定':{eco:{'幸福感':0.4,'关系韧性':0.3,'节奏管理':0.3}},
+  '协作质量':{eco:{'协作质量':0.6,'信任启动度':0.25,'信息透明度':0.15}},
+  '信任速度':{eco:{'信任启动度':1.0}},
+  '节奏管理':{eco:{'节奏管理':1.0}},
+  '应变效率':{eco:{'应变效率':0.6,'现实校准':0.4}},
+  '可持续度':{eco:{'幸福感':0.5,'节奏管理':0.5}},
+  '目标推进力':{eco:{'目标推进力':1.0}},
+  '领导力':{pot:{'领导潜力':1.0}},
+  '创新潜力':{pot:{'创新潜力':1.0}},
+  '影响半径':{eco:{'影响半径':0.6}, pot:{'社交潜力':0.4}},
+  '创业潜力':{pot:{'创业潜力':1.0}},
+  '学习与迁移':{pot:{'学习潜力':0.7}, eco:{'应变效率':0.3}},
+  '科研深度':{pot:{'科研潜力':1.0}},
+  '品牌/审美':{pot:{'艺术潜力':0.7}, eco:{'创造力':0.3}}
+};
+const TEAM_POT8_SOURCES={
+  '领导力':{pot:{'领导潜力':1.0}},
+  '创新潜力':{pot:{'创新潜力':1.0}},
+  '品牌/审美':{pot:{'艺术潜力':0.8}, eco:{'创造力':0.2}},
+  '学习与迁移':{pot:{'学习潜力':0.8}, eco:{'应变效率':0.2}},
+  '影响半径':{pot:{'社交潜力':0.7}, eco:{'影响半径':0.3}},
+  '创业潜力':{pot:{'创业潜力':1.0}},
+  '科研深度':{pot:{'科研潜力':1.0}},
+  '可持续度':{pot:{'幸福潜力':0.7}, eco:{'幸福感':0.3}}
+};
+function mapPersonToTeam14(p){
+  return TEAM14.map(ax=>{
+    const spec=TEAM14_SOURCES[ax]||{};
+    let acc=0,w=0;
+    if(spec.eco){ for(const k in spec.eco){ const ww=spec.eco[k], v=p.eco?.[k]; if(isFinite(v)){ acc+=ww*v; w+=ww; } } }
+    if(spec.pot){ for(const k in spec.pot){ const ww=spec.pot[k], v=p.pot?.[k]; if(isFinite(v)){ acc+=ww*v; w+=ww; } } }
+    return w? clamp(acc/w):0;
+  });
+}
+function mapPersonToTeamPot8(p){
+  return TEAM_POT8_AXES.map(ax=>{
+    const spec=TEAM_POT8_SOURCES[ax]||{};
+    let acc=0,w=0;
+    if(spec.eco){ for(const k in spec.eco){ const ww=spec.eco[k], v=p.eco?.[k]; if(isFinite(v)){ acc+=ww*v; w+=ww; } } }
+    if(spec.pot){ for(const k in spec.pot){ const ww=spec.pot[k], v=p.pot?.[k]; if(isFinite(v)){ acc+=ww*v; w+=ww; } } }
+    return w? clamp(acc/w):0;
+  });
+}
+
+/* ====== 统计与指标 ====== */
+function meanVector(vectors,len){
+  if(!vectors.length) return Array(len).fill(0);
+  const out=Array(len).fill(0);
+  vectors.forEach(vec=> vec.forEach((v,i)=> out[i]+=v));
+  return out.map(v=>v/vectors.length);
+}
+function statsPerDimFromMapped(vecs, labels){
+  const out={};
+  labels.forEach((ax,i)=>{
+    const vals=vecs.map(v=>v[i]).filter(v=>isFinite(v));
+    if(!vals.length){ out[ax]={mu:0,p20:0,max:0,min:0,cov70:0}; return; }
+    const mu=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sorted=[...vals].sort((a,b)=>a-b);
+    const p20=sorted[Math.max(0,Math.floor(sorted.length*0.2)-1)] ?? sorted[0];
+    const max=sorted[sorted.length-1];
+    const min=sorted[0];
+    const cov70=vals.filter(v=>v>=70).length/vals.length;
+    out[ax]={mu,p20,max,min,cov70};
+  });
+  return out;
+}
+function computeTRIFromMapped(stats){
+  let a=0,b=0,n=0;
+  for(const ax in stats){ const s=stats[ax]; a+=(s.mu-s.p20)/100; b+=(s.max-s.mu)/100; n++; }
+  return n? clamp(0.6*(a/n)+0.4*(b/n),0,1):0;
+}
+function computeRDIFromMapped(stats){
+  let risky=0,total=0;
+  BLADE_AXES.forEach(ax=>{
+    const s=stats[ax]; if(!s) return;
+    total++;
+    const danger=(s.max>=85)&&(s.mu<75)&&(s.p20<65);
+    if(danger) risky++;
+  });
+  return total? risky/total : 0;
+}
+function computeTSIFromCurrent(currentMap){
+  let a=0,ac=0,b=0,bc=0,c=0,cc=0;
+  TEAM14.forEach(ax=>{
+    const t=AXIS_TYPE_TEAM[ax], v=currentMap[ax]||0;
+    if(t==='A'){a+=v;ac++;}
+    else if(t==='B'){b+=v;bc++;}
+    else {c+=v;cc++;}
+  });
+  const A=ac?a/ac:0, B=bc?b/bc:0, C=cc?c/cc:0;
+  return clamp(0.5*A+0.3*B+0.2*C);
+}
+
+/* ====== 融合模型 ====== */
+function industryTeamVector(ind){ return [...(INDUSTRY_TEAM_BASE[ind]||TEAM_TEMPLATES.balanced.values)]; }
+function fusionTeamVector(mainInd, transInd, alpha=0.4, beta=0.6, gammaBase=0.15){
+  const A=industryTeamVector(mainInd), B=industryTeamVector(transInd), F=[];
+  for(let i=0;i<TEAM14.length;i++){
+    const a=A[i], b=B[i], t=AXIS_TYPE_TEAM[TEAM14[i]];
+    const gamma=gammaBase*(t==='A'?0.67:(t==='B'?1.33:1.0));
+    const synergy=Math.sqrt(Math.max(0,a)*Math.max(0,b));
+    const diff=b-a, tau=5, kappa=0.2*beta;
+    const contrast=(Math.abs(diff)>tau)? Math.sign(diff)*kappa*(Math.abs(diff)-tau):0;
+    F.push(clamp(alpha*a + beta*b + gamma*synergy + contrast));
+  }
+  return F;
+}
+
+/* ====== 画图 ====== */
+let team14Chart, teamPot8Chart, teamModelChart;
+let teamModelLegendState={};
+const DEFAULT_LEGEND_ONCLICK=(Chart?.defaults?.plugins?.legend?.onClick)||function(evt,item,legend){
+  const chart=legend.chart;
+  const idx=item.datasetIndex;
+  chart.toggleDataVisibility(idx);
+  chart.update();
+};
+function palette(i,alpha=0.25){const h=(i*47)%360;return `hsla(${h}deg,80%,60%,${alpha})`;}
+function makeRadar(ctx, labels, datasets, extraOptions={}){
+  const baseOptions={
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{position:'top', labels:{color:'#e7ecff', boxWidth:14, boxHeight:14}},
+      tooltip:{callbacks:{label:(ctx)=>{
+        const axis=labels[ctx.dataIndex], val=Math.round(ctx.parsed.r);
+        if(ctx.chart.canvas.id==='teamModelChart' && window.__TEAM14_STATS){
+          const s=window.__TEAM14_STATS[axis];
+          if(s){
+            return `${ctx.dataset.label}: ${val} | m:${Math.round(s.min)} p20:${Math.round(s.p20)} μ:${Math.round(s.mu)} M:${Math.round(s.max)} 覆盖≥70%:${Math.round(s.cov70*100)}%`;
+          }
+        }
+        return `${ctx.dataset.label}: ${val}`;
+      }}}
+    },
+    scales:{ r:{
+      angleLines:{color:'#223059'},
+      grid:{color:'#1f2a52'},
+      pointLabels:{color:'#cfe0ff', font:{size:11}},
+      min:0, max:100, beginAtZero:true,
+      ticks:{backdropColor:'transparent', color:'#9fb3ff', showLabelBackdrop:false, stepSize:10}
+    }},
+    elements:{ line:{borderWidth:2}, point:{radius:2} }
+  };
+  const merged={...baseOptions, ...extraOptions};
+  merged.plugins={...baseOptions.plugins, ...(extraOptions.plugins||{})};
+  if(extraOptions.plugins && extraOptions.plugins.legend){
+    merged.plugins.legend={...baseOptions.plugins.legend, ...extraOptions.plugins.legend};
+  }
+  if(extraOptions.plugins && extraOptions.plugins.tooltip){
+    merged.plugins.tooltip={...baseOptions.plugins.tooltip, ...extraOptions.plugins.tooltip};
+  }
+  return new Chart(ctx, { type:'radar', data:{labels, datasets}, options:merged });
+}
+
+/* ====== 交互控件 ====== */
+const backHubBtn=document.getElementById('backHubBtn');
+const teamSelect=document.getElementById('teamSelect');
+const readHubBtn=document.getElementById('readHubBtn');
+const regenBtn=document.getElementById('regenBtn');
+const teamTemplateSelect=document.getElementById('teamTemplateSelect');
+const showTeamTemplate=document.getElementById('showTeamTemplate');
+const industrySelect=document.getElementById('industrySelect');
+const transIndustrySelect=document.getElementById('transIndustrySelect');
+const showFusion=document.getElementById('showFusion');
+const wMainInput=document.getElementById('wMain');
+const wTransInput=document.getElementById('wTrans');
+const gammaInput=document.getElementById('gamma');
+const topBadges=document.getElementById('topBadges');
+const potTemplateTable=document.getElementById('potTemplateTable');
+const teamBadges=document.getElementById('teamBadges');
+const fusionKV=document.getElementById('fusionKV');
+const fusionTable=document.getElementById('fusionTable');
+
+/* ====== 初始化与数据 ====== */
+let currentTeamId=getUrlParam('teamId') || (getSessionMeta()?.teamId || '');
+
+function mockTeam(N=12){
+  const people=Array.from({length:N}).map((_,i)=>{
+    const eco={},pot={};
+    const eb=(Math.random()*10-5), pb=(Math.random()*10-5);
+    ECO16.forEach((k,idx)=>{
+      let base=65+(Math.sin((i+1)*(idx+1))*8)+eb;
+      if(k==='协作质量'||k==='目标推进力') base+=5;
+      eco[k]=clamp(base+randn(0,4),40,95);
+    });
+    POT8.forEach((k,idx)=>{
+      let base=66+(Math.cos((i+2)*(idx+1))*9)+pb;
+      if(k==='领导潜力'||k==='创新潜力') base+=6;
+      pot[k]=clamp(base+randn(0,5),40,96);
+    });
+    return {name:`成员${i+1}`, eco, pot};
+  });
+  return {people, industry:'SaaS/DevTools'};
+}
+
+function tryInitialData(){
+  if(currentTeamId){
+    const d=readTeamById(currentTeamId);
+    if(d) return d;
+  }
+  if(P){
+    try{
+      const teams=P.getTeams()||[];
+      for(const t of teams){
+        const built=buildTeamFromSessions(t.teamId);
+        if(built){ currentTeamId=t.teamId; ensureSessionTeam(currentTeamId); return built; }
+      }
+    }catch(err){ console.warn('tryInitialData: PSYS', err); }
+  }
+  const local=tryReadTeamFromLocal();
+  if(local) return local;
+  currentTeamId='';
+  return mockTeam(12);
+}
+
+let DATA = normalizeTeam( tryInitialData() );  // <<< 初始即归一化
+if(currentTeamId) ensureSessionTeam(currentTeamId);
+
+function initIndustryOptions(){
+  const keys=Object.keys(INDUSTRY_TEAM_BASE);
+  industrySelect.innerHTML=keys.map(k=>`<option value="${k}">${k}</option>`).join('');
+  transIndustrySelect.innerHTML=keys.map(k=>`<option value="${k}">${k}</option>`).join('');
+  if(DATA.industry && INDUSTRY_TEAM_BASE[DATA.industry]){
+    industrySelect.value=DATA.industry;
+  }else{
+    industrySelect.value='SaaS/DevTools';
+  }
+  if(!INDUSTRY_TEAM_BASE[transIndustrySelect.value]){
+    transIndustrySelect.value='品牌/设计/内容';
+  }
+}
+function populateTeamSelect(){
+  const teams=discoverTeams();
+  let html='<option value="">（选择团队后点击“读取团队数据”）</option>';
+  teams.forEach(t=>{
+    html+=`<option value="${t.id}">${t.label || t.id}${t.count?`（约${t.count}人）`:''}</option>`;
+  });
+  teamSelect.innerHTML=html;
+  if(currentTeamId && teams.some(t=>t.id===currentTeamId)){
+    teamSelect.value=currentTeamId;
+  }
+}
+initIndustryOptions();
+populateTeamSelect();
+
+/* ====== 渲染主流程 ====== */
+function renderAll(){
+  const people=Array.isArray(DATA?.people) ? DATA.people : [];
+  DATA.industry = industrySelect.value;
+
+  topBadges.innerHTML=`
+    <span class="badge">团队：<b>${currentTeamId || '模拟数据'}</b></span>
+    <span class="badge">纳入人数：<b>${people.length}</b></span>
+    <span class="badge">主业：<b>${industrySelect.value}</b></span>
+  `;
+
+  const mapped14=people.map(mapPersonToTeam14);
+  const mappedPot8=people.map(mapPersonToTeamPot8);
+  const mean14=meanVector(mapped14, TEAM14.length);
+  const meanPot8=meanVector(mappedPot8, TEAM_POT8_AXES.length);
+
+  // 1-1
+  if(team14Chart) team14Chart.destroy();
+  const tmplKey=teamTemplateSelect.value;
+  const indiv14DS=people.slice(0,12).map((p,idx)=>({
+    label:p.name || `成员${idx+1}`,
+    data:mapped14[idx],
+    borderColor:palette(idx,.45),
+    backgroundColor:palette(idx,.07),
+    borderWidth:1,
+    pointRadius:0
+  }));
+  const datasets14=[
+    ...indiv14DS,
+    {label:'团队均值（14维）', data:mean14, borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,0.10)', borderWidth:2, pointRadius:0}
+  ];
+  if(showTeamTemplate.checked){
+    const tmpl=TEAM_TEMPLATES[tmplKey];
+    datasets14.push({label:`模板｜${tmpl.name}`, data:tmpl.values, borderColor:'#a5b4fc', borderDash:[8,4], backgroundColor:'rgba(165,180,252,0.06)', borderWidth:2, pointRadius:0});
+  }
+  team14Chart=makeRadar(document.getElementById('team14Chart'), TEAM14, datasets14);
+
+  // 1-2
+  if(teamPot8Chart) teamPot8Chart.destroy();
+  const potTmpl=TEAM_POT_TEMPLATES[tmplKey];
+  const indivPotDS=people.slice(0,12).map((p,idx)=>({
+    label:p.name || `成员${idx+1}`,
+    data:mappedPot8[idx],
+    borderColor:palette(idx+6,.45),
+    backgroundColor:palette(idx+6,.07),
+    borderWidth:1,
+    pointRadius:0
+  }));
+  const datasetsPot=[
+    ...indivPotDS,
+    {label:'团队均值（潜力8）', data:meanPot8, borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,0.10)', borderWidth:2, pointRadius:0}
+  ];
+  if(showTeamTemplate.checked){
+    datasetsPot.push({label:`潜力模板｜${potTmpl.name}`, data:potTmpl.values, borderColor:'#f59e0b', borderDash:[8,4], backgroundColor:'rgba(245,158,11,.06)', borderWidth:2, pointRadius:0});
+  }
+  teamPot8Chart=makeRadar(document.getElementById('teamPot8Chart'), TEAM_POT8_AXES, datasetsPot);
+
+  potTemplateTable.innerHTML='<thead><tr><th>潜力维度</th><th>模板目标</th></tr></thead><tbody>' +
+    TEAM_POT8_AXES.map((ax,i)=>`<tr><td>${ax}</td><td>${potTmpl.values[i]}</td></tr>`).join('') + '</tbody>';
+
+  // 1-3
+  if(teamModelChart){
+    teamModelChart.data.datasets.forEach((ds,idx)=>{
+      const meta=teamModelChart.getDatasetMeta(idx);
+      teamModelLegendState[ds.label]=meta.hidden===true;
+    });
+    teamModelChart.destroy();
+  }
+  const stat14=statsPerDimFromMapped(mapped14, TEAM14);
+  window.__TEAM14_STATS=stat14;
+  const currentMap={};
+  TEAM14.forEach(ax=>{
+    const s=stat14[ax];
+    const t=AXIS_TYPE_TEAM[ax];
+    currentMap[ax]=(t==='A')? s.p20 : (t==='B')? s.max : 0.5*s.p20+0.5*s.max;
+  });
+  const currentVec=TEAM14.map(ax=>clamp(currentMap[ax]));
+  const bottomPts=TEAM14.map(ax=>BASELINE_AXES.includes(ax)? stat14[ax].min : NaN);
+  const topPts=TEAM14.map(ax=>BLADE_AXES.includes(ax)? stat14[ax].max : NaN);
+  const mi=industrySelect.value, ti=transIndustrySelect.value;
+  const alpha=parseFloat(wMainInput.value||'0.4'), beta=parseFloat(wTransInput.value||'0.6'), gamma=parseFloat(gammaInput.value||'0.15');
+  const fusion=showFusion.checked? fusionTeamVector(mi, ti, alpha, beta, gamma) : null;
+  const tier={High:TEAM14.map(ax=>AXIS_TYPE_TEAM[ax]==='A'?72:AXIS_TYPE_TEAM[ax]==='B'?85:70),
+              Medium:TEAM14.map(ax=>AXIS_TYPE_TEAM[ax]==='A'?65:AXIS_TYPE_TEAM[ax]==='B'?82:64),
+              Low:TEAM14.map(ax=>AXIS_TYPE_TEAM[ax]==='A'?58:AXIS_TYPE_TEAM[ax]==='B'?75:60)};
+  const baseDatasets=[
+    {label:'团队当前（A看p20｜B看M｜C折中）', data:currentVec, borderColor:'#f59f0b', backgroundColor:'rgba(245,159,11,.12)', borderWidth:2, pointRadius:0},
+    ...(showTeamTemplate.checked? [{label:`团队模板｜${TEAM_TEMPLATES[tmplKey].name}`, data:TEAM_TEMPLATES[tmplKey].values, borderColor:'#a5b4fc', borderDash:[8,4], backgroundColor:'rgba(165,180,252,.06)', borderWidth:2, pointRadius:0}] : []),
+    ...(fusion? [{label:`融合模型（${mi}×${ti}）`, data:fusion, borderColor:'#22d3ee', borderDash:[6,2], backgroundColor:'rgba(34,211,238,.06)', borderWidth:2, pointRadius:0}] : []),
+    {label:'高配参考', data:tier.High, borderColor:'rgba(74,222,128,.85)', borderDash:[3,3], backgroundColor:'rgba(74,222,128,.05)', borderWidth:1, pointRadius:0},
+    {label:'中配参考', data:tier.Medium, borderColor:'rgba(96,165,250,.85)', borderDash:[3,3], backgroundColor:'rgba(96,165,250,.05)', borderWidth:1, pointRadius:0},
+    {label:'低配参考', data:tier.Low, borderColor:'rgba(255,92,154,.85)', borderDash:[3,3], backgroundColor:'rgba(255,92,154,.05)', borderWidth:1, pointRadius:0},
+    {label:'底线点（A组·m）', data:bottomPts, showLine:false, pointRadius:4, pointHoverRadius:5, pointStyle:'rectRot', borderWidth:0, borderColor:'rgba(239,68,68,1)', backgroundColor:'rgba(239,68,68,.12)'},
+    {label:'峰值点（B组·M）', data:topPts, showLine:false, pointRadius:4, pointHoverRadius:5, pointStyle:'circle', borderWidth:0, borderColor:'rgba(34,197,94,1)', backgroundColor:'rgba(34,197,94,.12)'}
+  ];
+  const datasetsModel=baseDatasets.map(ds=>{
+    const clone={...ds};
+    if(Object.prototype.hasOwnProperty.call(teamModelLegendState, clone.label) && teamModelLegendState[clone.label]){
+      clone.hidden=true;
+    }
+    return clone;
+  });
+  teamModelChart=makeRadar(
+    document.getElementById('teamModelChart'),
+    TEAM14,
+    datasetsModel,
+    {plugins:{legend:{onClick:(evt,item,legend)=>{
+      DEFAULT_LEGEND_ONCLICK(evt,item,legend);
+      const chart=legend.chart, idx=item.datasetIndex, label=chart.data.datasets[idx]?.label;
+      if(label){ teamModelLegendState[label]=chart.getDatasetMeta(idx).hidden===true; }
+    }}}}
+  );
+
+  const TRI=computeTRIFromMapped(stat14);
+  const RDI=computeRDIFromMapped(stat14);
+  const TSI=computeTSIFromCurrent(currentMap);
+  teamBadges.innerHTML=`
+    <span class="badge">TSI 团队实力：<b>${TSI.toFixed(1)}</b></span>
+    <span class="badge">TRI 分化风险：<b>${(TRI*100).toFixed(0)}%</b></span>
+    <span class="badge">RDI 单点风险：<b>${(RDI*100).toFixed(0)}%</b></span>
+    <span class="badge">成员数：<b>${people.length}</b></span>
+    ${fusion? `<span class="badge">融合参数：α=${alpha.toFixed(2)}｜β=${beta.toFixed(2)}｜γ=${gamma.toFixed(2)}</span>`:''}
+  `;
+
+  if(!fusion){
+    fusionKV.innerHTML='';
+    fusionTable.innerHTML='';
+  }else{
+    fusionKV.innerHTML=`<span class="badge">融合目标：${mi} × ${ti}</span>`;
+    const A=industryTeamVector(mi), B=industryTeamVector(ti);
+    let html='<thead><tr><th>维度</th><th>主业模板</th><th>副业模板</th><th>融合目标</th></tr></thead><tbody>';
+    TEAM14.forEach((ax,i)=>{ html+=`<tr><td>${ax}</td><td>${Math.round(A[i])}</td><td>${Math.round(B[i])}</td><td><b>${Math.round(fusion[i])}</b></td></tr>`; });
+    html+='</tbody>'; fusionTable.innerHTML=html;
+  }
+  
+  // 更新条形图和数据表格
+  updateDataTables();
+  updateBarChart();
+}
+
+/* ====== 条形图和数据表格功能 ====== */
+let barChart;
+let currentBarData = {};
+
+// 创建条形图
+function createBarChart(labels, datasets) {
+  const ctx = document.getElementById('barChart');
+  if (barChart) {
+    barChart.destroy();
+  }
+  
+  barChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: '#e7ecff',
+            boxWidth: 14,
+            boxHeight: 14
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return `${context.dataset.label}: ${Math.round(context.parsed.y)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#cfe0ff',
+            font: { size: 10 }
+          },
+          grid: {
+            color: '#1f2a52'
+          }
+        },
+        y: {
+          beginAtZero: true,
+          max: 100,
+          ticks: {
+            color: '#9fb3ff',
+            stepSize: 10
+          },
+          grid: {
+            color: '#1f2a52'
+          }
+        }
+      }
+    }
+  });
+}
+
+// 更新条形图
+function updateBarChart() {
+  const chartType = document.getElementById('chartTypeSelect').value;
+  const displayType = document.getElementById('displayTypeSelect').value;
+  
+  let labels, datasets;
+  
+  if (chartType === 'team14') {
+    labels = TEAM14;
+    const mean14 = currentBarData.mean14 || [];
+    const template14 = currentBarData.template14 || [];
+    
+    if (displayType === 'mean') {
+      datasets = [{
+        label: '团队均值（14维）',
+        data: mean14,
+        backgroundColor: 'rgba(34,197,94,0.6)',
+        borderColor: '#22c55e',
+        borderWidth: 1
+      }];
+    } else if (displayType === 'all') {
+      datasets = [
+        {
+          label: '团队均值（14维）',
+          data: mean14,
+          backgroundColor: 'rgba(34,197,94,0.6)',
+          borderColor: '#22c55e',
+          borderWidth: 1
+        }
+      ];
+    }
+  } else if (chartType === 'teamPot8') {
+    labels = TEAM_POT8_AXES;
+    const meanPot8 = currentBarData.meanPot8 || [];
+    const templatePot8 = currentBarData.templatePot8 || [];
+    
+    if (displayType === 'mean') {
+      datasets = [{
+        label: '团队均值（潜力8维）',
+        data: meanPot8,
+        backgroundColor: 'rgba(96,165,250,0.6)',
+        borderColor: '#60a5fa',
+        borderWidth: 1
+      }];
+    } else if (displayType === 'all') {
+      datasets = [
+        {
+          label: '团队均值（潜力8维）',
+          data: meanPot8,
+          backgroundColor: 'rgba(96,165,250,0.6)',
+          borderColor: '#60a5fa',
+          borderWidth: 1
+        }
+      ];
+    }
+  } else if (chartType === 'teamModel') {
+    labels = TEAM14;
+    const current = currentBarData.current || [];
+    
+    if (displayType === 'current') {
+      datasets = [{
+        label: '团队当前（模型）',
+        data: current,
+        backgroundColor: 'rgba(245,159,11,0.6)',
+        borderColor: '#f59f0b',
+        borderWidth: 1
+      }];
+    } else if (displayType === 'all') {
+      datasets = [
+        {
+          label: '团队当前（模型）',
+          data: current,
+          backgroundColor: 'rgba(245,159,11,0.6)',
+          borderColor: '#f59f0b',
+          borderWidth: 1
+        }
+      ];
+    }
+  }
+  
+  createBarChart(labels, datasets);
+}
+
+// 更新数据表格
+function updateDataTables() {
+  const people = Array.isArray(DATA?.people) ? DATA.people : [];
+  const mapped14 = people.map(mapPersonToTeam14);
+  const mappedPot8 = people.map(mapPersonToTeamPot8);
+  const mean14 = meanVector(mapped14, TEAM14.length);
+  const meanPot8 = meanVector(mappedPot8, TEAM_POT8_AXES.length);
+  const stat14 = statsPerDimFromMapped(mapped14, TEAM14);
+  const statPot8 = statsPerDimFromMapped(mappedPot8, TEAM_POT8_AXES);
+  
+  const tmplKey = teamTemplateSelect.value;
+  const template14 = TEAM_TEMPLATES[tmplKey].values;
+  const templatePot8 = TEAM_POT_TEMPLATES[tmplKey].values;
+  
+  // 更新团队14维数据表
+  const team14Table = document.getElementById('team14DataTable').querySelector('tbody');
+  team14Table.innerHTML = '';
+  TEAM14.forEach((axis, i) => {
+    const stats = stat14[axis];
+    const row = team14Table.insertRow();
+    row.innerHTML = `
+      <td><strong>${axis}</strong></td>
+      <td>${Math.round(mean14[i])}</td>
+      <td>${Math.round(stats.min)}</td>
+      <td>${Math.round(stats.p20)}</td>
+      <td>${Math.round(stats.max)}</td>
+      <td>${Math.round(stats.cov70 * 100)}%</td>
+    `;
+  });
+  
+  // 更新团队潜力8维数据表
+  const teamPot8Table = document.getElementById('teamPot8DataTable').querySelector('tbody');
+  teamPot8Table.innerHTML = '';
+  TEAM_POT8_AXES.forEach((axis, i) => {
+    const stats = statPot8[axis];
+    const row = teamPot8Table.insertRow();
+    row.innerHTML = `
+      <td><strong>${axis}</strong></td>
+      <td>${Math.round(meanPot8[i])}</td>
+      <td>${Math.round(stats.min)}</td>
+      <td>${Math.round(stats.p20)}</td>
+      <td>${Math.round(stats.max)}</td>
+      <td>${Math.round(stats.cov70 * 100)}%</td>
+    `;
+  });
+  
+  // 更新团队模型14维数据表
+  const currentMap = {};
+  TEAM14.forEach(ax => {
+    const s = stat14[ax];
+    const t = AXIS_TYPE_TEAM[ax];
+    currentMap[ax] = (t === 'A') ? s.p20 : (t === 'B') ? s.max : 0.5 * s.p20 + 0.5 * s.max;
+  });
+  const currentVec = TEAM14.map(ax => clamp(currentMap[ax]));
+  
+  const teamModelTable = document.getElementById('teamModelDataTable').querySelector('tbody');
+  teamModelTable.innerHTML = '';
+  TEAM14.forEach((axis, i) => {
+    const row = teamModelTable.insertRow();
+    row.innerHTML = `
+      <td><strong>${axis}</strong></td>
+      <td>${Math.round(currentVec[i])}</td>
+    `;
+  });
+  
+  // 更新个人详细数据表
+  const individualTable = document.getElementById('individualDataTable').querySelector('tbody');
+  individualTable.innerHTML = '';
+  people.forEach((person, personIndex) => {
+    const mapped14Values = mapped14[personIndex];
+    const mappedPot8Values = mappedPot8[personIndex];
+    
+    TEAM14.forEach((axis, axisIndex) => {
+      const row = individualTable.insertRow();
+      const pot8Index = TEAM_POT8_AXES.indexOf(axis);
+      row.innerHTML = `
+        <td>${person.name || `成员${personIndex + 1}`}</td>
+        <td>${axis}</td>
+        <td>${Math.round(mapped14Values[axisIndex])}</td>
+        <td>${pot8Index >= 0 ? Math.round(mappedPot8Values[pot8Index]) : '-'}</td>
+      `;
+    });
+  });
+  
+  // 保存当前数据供条形图使用
+  currentBarData = {
+    mean14: mean14,
+    meanPot8: meanPot8,
+    current: currentVec
+  };
+}
+
+// 导出数据功能
+function exportData() {
+  const data = {
+    teamId: currentTeamId,
+    timestamp: new Date().toISOString(),
+    team14Data: currentBarData.mean14,
+    teamPot8Data: currentBarData.meanPot8,
+    currentData: currentBarData.current,
+    labels: {
+      team14: TEAM14,
+      teamPot8: TEAM_POT8_AXES
+    }
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `team_radar_data_${currentTeamId || 'mock'}_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ====== 事件 ====== */
+const teamModelLegendReset=()=>{ teamModelLegendState={}; };
+document.getElementById('backHubBtn').addEventListener('click', ()=>{ window.location.href='hub.html'; });
+document.getElementById('readHubBtn').addEventListener('click', ()=>{
+  const teamId=teamSelect.value || currentTeamId || getUrlParam('teamId');
+  if(!teamId){ alert('请先在下拉框选择团队'); return; }
+  const dataset=readTeamById(teamId);
+  if(dataset && Array.isArray(dataset.people) && dataset.people.length){
+    DATA = normalizeTeam({ people:dataset.people, industry: dataset.industry || industrySelect.value || 'SaaS/DevTools' }); // <<< 读取后归一化
+    currentTeamId=teamId;
+    ensureSessionTeam(teamId);
+    teamModelLegendReset();
+    populateTeamSelect();
+    renderAll();
+  }else{
+    alert(`未找到 teamId=${teamId} 的团队数据。请确认 hub 已写入该团队或完成 Step3 保存。`);
+  }
+});
+document.getElementById('regenBtn').addEventListener('click', ()=>{
+  DATA = normalizeTeam( mockTeam(12) ); // <<< 模拟后也归一化（与真实数据口径一致）
+  currentTeamId='';
+  teamModelLegendReset();
+  renderAll();
+});
+[teamTemplateSelect,showTeamTemplate,industrySelect,transIndustrySelect,showFusion,wMainInput,wTransInput,gammaInput]
+  .forEach(el=> el.addEventListener('change', ()=>{ renderAll(); }));
+teamSelect.addEventListener('change', (e)=>{ const val=e.target.value; if(val) ensureSessionTeam(val); });
+
+// 新增事件监听器
+document.getElementById('chartTypeSelect').addEventListener('change', updateBarChart);
+document.getElementById('displayTypeSelect').addEventListener('change', updateBarChart);
+document.getElementById('exportDataBtn').addEventListener('click', exportData);
+document.getElementById('toggleAllDataBtn').addEventListener('click', () => {
+  const section = document.getElementById('individualDataSection');
+  section.style.display = section.style.display === 'none' ? 'block' : 'none';
+});
+
+/* ====== 新增功能函数 ====== */
+
+// 多维度数据对比展示功能
+function generateComparison() {
+  const comparisonType = document.getElementById('comparisonType').value;
+  const dimensionType = document.getElementById('comparisonDimension').value;
+  
+  const canvas = document.getElementById('comparisonCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  // 清除之前的图表
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  let data, labels;
+  if (dimensionType === 'team14') {
+    data = currentBarData.mean14 || [];
+    labels = TEAM14;
+  } else {
+    data = currentBarData.meanPot8 || [];
+    labels = TEAM_POT8_AXES;
+  }
+  
+  if (comparisonType === 'team_vs_individual') {
+    drawTeamVsIndividualChart(ctx, data, labels);
+  } else if (comparisonType === 'dimensions_ranking') {
+    drawDimensionsRankingChart(ctx, data, labels);
+  } else if (comparisonType === 'strength_weakness') {
+    drawStrengthWeaknessChart(ctx, data, labels);
+  }
+}
+
+function drawTeamVsIndividualChart(ctx, teamData, labels) {
+  const canvas = ctx.canvas;
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  
+  const padding = 60;
+  const chartWidth = canvas.width - 2 * padding;
+  const chartHeight = canvas.height - 2 * padding;
+  const barWidth = chartWidth / labels.length * 0.8;
+  
+  // 绘制坐标轴
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, padding);
+  ctx.lineTo(padding, canvas.height - padding);
+  ctx.lineTo(canvas.width - padding, canvas.height - padding);
+  ctx.stroke();
+  
+  // 绘制数据条
+  teamData.forEach((value, i) => {
+    const x = padding + (i + 0.1) * (chartWidth / labels.length);
+    const barHeight = (value / 100) * chartHeight;
+    const y = canvas.height - padding - barHeight;
+    
+    ctx.fillStyle = 'rgba(54, 162, 235, 0.6)';
+    ctx.fillRect(x, y, barWidth, barHeight);
+    
+    // 绘制数值标签
+    ctx.fillStyle = '#333';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(value), x + barWidth/2, y - 5);
+    
+    // 绘制维度标签
+    ctx.save();
+    ctx.translate(x + barWidth/2, canvas.height - padding + 15);
+    ctx.rotate(-Math.PI/4);
+    ctx.textAlign = 'right';
+    ctx.fillText(labels[i], 0, 0);
+    ctx.restore();
+  });
+}
+
+function drawDimensionsRankingChart(ctx, data, labels) {
+  const canvas = ctx.canvas;
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  
+  // 创建排序数据
+  const sortedData = data.map((value, index) => ({
+    value: value,
+    label: labels[index],
+    index: index
+  })).sort((a, b) => b.value - a.value);
+  
+  const padding = 60;
+  const chartWidth = canvas.width - 2 * padding;
+  const chartHeight = canvas.height - 2 * padding;
+  const barHeight = chartHeight / sortedData.length * 0.8;
+  
+  // 绘制坐标轴
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, padding);
+  ctx.lineTo(padding, canvas.height - padding);
+  ctx.lineTo(canvas.width - padding, canvas.height - padding);
+  ctx.stroke();
+  
+  // 绘制排序条形图
+  sortedData.forEach((item, i) => {
+    const y = padding + (i + 0.1) * (chartHeight / sortedData.length);
+    const barWidth = (item.value / 100) * chartWidth;
+    
+    // 根据排名设置颜色
+    let color;
+    if (i < sortedData.length / 3) {
+      color = 'rgba(75, 192, 192, 0.6)'; // 绿色 - 优势
+    } else if (i < sortedData.length * 2 / 3) {
+      color = 'rgba(255, 206, 86, 0.6)'; // 黄色 - 中等
+    } else {
+      color = 'rgba(255, 99, 132, 0.6)'; // 红色 - 需改进
+    }
+    
+    ctx.fillStyle = color;
+    ctx.fillRect(padding, y, barWidth, barHeight);
+    
+    // 绘制数值标签
+    ctx.fillStyle = '#333';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${item.label}: ${Math.round(item.value)}`, padding + barWidth + 5, y + barHeight/2 + 4);
+  });
+}
+
+function drawStrengthWeaknessChart(ctx, data, labels) {
+  const canvas = ctx.canvas;
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  
+  const avgValue = data.reduce((sum, val) => sum + val, 0) / data.length;
+  const strengths = [];
+  const weaknesses = [];
+  
+  data.forEach((value, index) => {
+    if (value > avgValue + 5) {
+      strengths.push({ label: labels[index], value: value });
+    } else if (value < avgValue - 5) {
+      weaknesses.push({ label: labels[index], value: value });
+    }
+  });
+  
+  // 清除画布
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // 绘制标题
+  ctx.fillStyle = '#333';
+  ctx.font = 'bold 16px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('优势劣势分析', canvas.width / 2, 30);
+  
+  // 绘制优势区域
+  ctx.fillStyle = 'rgba(75, 192, 192, 0.8)';
+  ctx.font = '14px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText('优势维度:', 50, 70);
+  
+  strengths.forEach((item, i) => {
+    ctx.fillStyle = 'rgba(75, 192, 192, 0.6)';
+    ctx.fillRect(50, 90 + i * 30, (item.value / 100) * 200, 20);
+    ctx.fillStyle = '#333';
+    ctx.fillText(`${item.label}: ${Math.round(item.value)}`, 260, 105 + i * 30);
+  });
+  
+  // 绘制劣势区域
+  const weaknessStartY = 120 + strengths.length * 30;
+  ctx.fillStyle = 'rgba(255, 99, 132, 0.8)';
+  ctx.fillText('需改进维度:', 50, weaknessStartY);
+  
+  weaknesses.forEach((item, i) => {
+    ctx.fillStyle = 'rgba(255, 99, 132, 0.6)';
+    ctx.fillRect(50, weaknessStartY + 20 + i * 30, (item.value / 100) * 200, 20);
+    ctx.fillStyle = '#333';
+    ctx.fillText(`${item.label}: ${Math.round(item.value)}`, 260, weaknessStartY + 35 + i * 30);
+  });
+}
+
+function exportComparison() {
+  const comparisonType = document.getElementById('comparisonType').value;
+  const dimensionType = document.getElementById('comparisonDimension').value;
+  
+  let data, labels;
+  if (dimensionType === 'team14') {
+    data = currentBarData.mean14 || [];
+    labels = TEAM14;
+  } else {
+    data = currentBarData.meanPot8 || [];
+    labels = TEAM_POT8_AXES;
+  }
+  
+  const exportData = {
+    comparisonType: comparisonType,
+    dimensionType: dimensionType,
+    data: labels.map((label, index) => ({
+      dimension: label,
+      value: Math.round(data[index] || 0)
+    })),
+    timestamp: new Date().toISOString()
+  };
+  
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `comparison_data_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// 详细文字分析内容功能
+function generateTeamAnalysis() {
+  const analysisDiv = document.getElementById('analysisContent');
+  
+  const team14Data = currentBarData.mean14 || [];
+  const teamPot8Data = currentBarData.meanPot8 || [];
+  
+  const avgTeam14 = team14Data.reduce((sum, val) => sum + val, 0) / team14Data.length;
+  const avgTeamPot8 = teamPot8Data.reduce((sum, val) => sum + val, 0) / teamPot8Data.length;
+  
+  const analysis = `
+    <div style="color: var(--ink);">
+      <div style="display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+        <div style="font-size: 24px; margin-right: 12px;">📊</div>
+        <h3 style="margin: 0; color: var(--ink);">团队整体分析报告</h3>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-left: 4px solid var(--good); padding: 12px; margin-bottom: 16px; border-radius: 8px;">
+        <div style="color: var(--muted); font-size: 12px; margin-bottom: 8px;">生成时间: ${new Date().toLocaleString()}</div>
+      </div>
+      
+      <div style="margin-bottom: 24px;">
+        <h4 style="color: var(--ink); margin-bottom: 12px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">🎯</span>团队概况
+        </h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+          <div style="background: linear-gradient(135deg, rgba(74, 222, 128, 0.1), rgba(74, 222, 128, 0.05)); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 12px; padding: 16px; text-align: center;">
+            <div style="font-size: 28px; font-weight: bold; color: var(--good); margin-bottom: 4px;">${Math.round(avgTeam14)}</div>
+            <div style="color: var(--muted); font-size: 13px;">团队14维平均分</div>
+          </div>
+          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 16px; text-align: center;">
+            <div style="font-size: 28px; font-weight: bold; color: #3b82f6; margin-bottom: 4px;">${Math.round(avgTeamPot8)}</div>
+            <div style="color: var(--muted); font-size: 13px;">团队潜力8维平均分</div>
+          </div>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 24px;">
+        <h4 style="color: var(--ink); margin-bottom: 12px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">📈</span>维度详细分析
+        </h4>
+        
+        <div style="background: rgba(16, 23, 58, 0.6); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+          <h5 style="color: var(--good); margin-bottom: 12px;">团队14维表现</h5>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+            ${TEAM14.map((dim, i) => {
+              const score = Math.round(team14Data[i] || 0);
+              const color = score >= 70 ? 'var(--good)' : score >= 50 ? 'var(--warn)' : 'var(--bad)';
+              return `<div style="display: flex; justify-content: space-between; padding: 6px 12px; background: rgba(28, 36, 71, 0.5); border-radius: 8px; border-left: 3px solid ${color};">
+                <span style="color: var(--ink); font-size: 13px;">${dim}</span>
+                <span style="color: ${color}; font-weight: bold;">${score}分</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        
+        <div style="background: rgba(16, 23, 58, 0.6); border-radius: 12px; padding: 16px;">
+          <h5 style="color: #3b82f6; margin-bottom: 12px;">团队潜力8维表现</h5>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+            ${TEAM_POT8_AXES.map((dim, i) => {
+              const score = Math.round(teamPot8Data[i] || 0);
+              const color = score >= 70 ? 'var(--good)' : score >= 50 ? 'var(--warn)' : 'var(--bad)';
+              return `<div style="display: flex; justify-content: space-between; padding: 6px 12px; background: rgba(28, 36, 71, 0.5); border-radius: 8px; border-left: 3px solid ${color};">
+                <span style="color: var(--ink); font-size: 13px;">${dim}</span>
+                <span style="color: ${color}; font-weight: bold;">${score}分</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-radius: 12px; padding: 16px;">
+        <h4 style="color: var(--ink); margin-bottom: 12px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">💡</span>总结建议
+        </h4>
+        <p style="color: var(--muted); line-height: 1.6; margin: 0;">
+          基于当前数据分析，团队在各维度表现${avgTeam14 >= 70 ? '优秀' : avgTeam14 >= 50 ? '良好' : '需要改进'}。
+          建议重点关注得分较低的维度，制定针对性的提升计划，同时保持和发扬优势维度的表现。
+        </p>
+      </div>
+    </div>
+  `;
+  
+  analysisDiv.innerHTML = analysis;
+}
+
+function generateStrengthAnalysis() {
+  const analysisDiv = document.getElementById('analysisContent');
+  
+  const team14Data = currentBarData.mean14 || [];
+  const teamPot8Data = currentBarData.meanPot8 || [];
+  
+  // 找出优势维度（高于平均值+标准差）
+  const avgTeam14 = team14Data.reduce((sum, val) => sum + val, 0) / team14Data.length;
+  const strengths14 = TEAM14.filter((dim, i) => team14Data[i] > avgTeam14 + 5);
+  
+  const avgTeamPot8 = teamPot8Data.reduce((sum, val) => sum + val, 0) / teamPot8Data.length;
+  const strengthsPot8 = TEAM_POT8_AXES.filter((dim, i) => teamPot8Data[i] > avgTeamPot8 + 5);
+  
+  const analysis = `
+    <div style="color: var(--ink);">
+      <div style="display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+        <div style="font-size: 24px; margin-right: 12px;">💪</div>
+        <h3 style="margin: 0; color: var(--ink);">团队优势分析</h3>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-left: 4px solid var(--good); padding: 12px; margin-bottom: 16px; border-radius: 8px;">
+        <div style="color: var(--muted); font-size: 12px;">生成时间: ${new Date().toLocaleString()}</div>
+      </div>
+      
+      <div style="margin-bottom: 24px;">
+        <h4 style="color: var(--ink); margin-bottom: 16px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">🌟</span>核心优势维度
+        </h4>
+        
+        <div style="background: rgba(74, 222, 128, 0.1); border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid rgba(74, 222, 128, 0.3);">
+          <h5 style="color: var(--good); margin-bottom: 12px; display: flex; align-items: center;">
+            <span style="margin-right: 8px;">📊</span>团队14维优势
+          </h5>
+          ${strengths14.length > 0 ? 
+            `<div style="display: grid; gap: 8px;">
+              ${strengths14.map(dim => {
+                const index = TEAM14.indexOf(dim);
+                const score = Math.round(team14Data[index]);
+                return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(74, 222, 128, 0.15); border-radius: 8px; border-left: 4px solid var(--good);">
+                  <div>
+                    <div style="color: var(--ink); font-weight: bold; margin-bottom: 4px;">${dim}</div>
+                    <div style="color: var(--good); font-size: 12px;">表现突出 - 继续发挥</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="color: var(--good); font-size: 24px; font-weight: bold;">${score}</div>
+                    <div style="color: var(--muted); font-size: 12px;">分</div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>` : 
+            '<div style="text-align: center; padding: 20px; color: var(--muted);">暂无明显优势维度，建议重点培养核心能力</div>'
+          }
+        </div>
+        
+        <div style="background: rgba(59, 130, 246, 0.1); border-radius: 12px; padding: 16px; border: 1px solid rgba(59, 130, 246, 0.3);">
+          <h5 style="color: #3b82f6; margin-bottom: 12px; display: flex; align-items: center;">
+            <span style="margin-right: 8px;">🚀</span>团队潜力8维优势
+          </h5>
+          ${strengthsPot8.length > 0 ? 
+            `<div style="display: grid; gap: 8px;">
+              ${strengthsPot8.map(dim => {
+                const index = TEAM_POT8_AXES.indexOf(dim);
+                const score = Math.round(teamPot8Data[index]);
+                return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(59, 130, 246, 0.15); border-radius: 8px; border-left: 4px solid #3b82f6;">
+                  <div>
+                    <div style="color: var(--ink); font-weight: bold; margin-bottom: 4px;">${dim}</div>
+                    <div style="color: #3b82f6; font-size: 12px;">潜力突出 - 值得深挖</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="color: #3b82f6; font-size: 24px; font-weight: bold;">${score}</div>
+                    <div style="color: var(--muted); font-size: 12px;">分</div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>` : 
+            '<div style="text-align: center; padding: 20px; color: var(--muted);">暂无明显优势维度，建议重点培养潜力能力</div>'
+          }
+        </div>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-radius: 12px; padding: 16px;">
+        <h4 style="color: var(--ink); margin-bottom: 12px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">💡</span>优势发挥建议
+        </h4>
+        <div style="color: var(--muted); line-height: 1.6;">
+          <div style="margin-bottom: 12px;">• 继续发挥现有优势维度，将其作为团队核心竞争力</div>
+          <div style="margin-bottom: 12px;">• 将优势能力应用到更多工作场景中，扩大影响范围</div>
+          <div style="margin-bottom: 12px;">• 建立优势维度的最佳实践，形成可复制的经验</div>
+          <div>• 通过优势带动其他维度的提升，实现整体能力跃升</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  analysisDiv.innerHTML = analysis;
+}
+
+function generateImprovementAnalysis() {
+  const analysisDiv = document.getElementById('analysisContent');
+  
+  const team14Data = currentBarData.mean14 || [];
+  const teamPot8Data = currentBarData.meanPot8 || [];
+  
+  // 找出需改进维度（低于平均值-标准差）
+  const avgTeam14 = team14Data.reduce((sum, val) => sum + val, 0) / team14Data.length;
+  const weaknesses14 = TEAM14.filter((dim, i) => team14Data[i] < avgTeam14 - 5);
+  
+  const avgTeamPot8 = teamPot8Data.reduce((sum, val) => sum + val, 0) / teamPot8Data.length;
+  const weaknessesPot8 = TEAM_POT8_AXES.filter((dim, i) => teamPot8Data[i] < avgTeamPot8 - 5);
+  
+  const analysis = `
+    <div style="color: var(--ink);">
+      <div style="display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--line);">
+        <div style="font-size: 24px; margin-right: 12px;">🎯</div>
+        <h3 style="margin: 0; color: var(--ink);">团队改进建议</h3>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-left: 4px solid var(--warn); padding: 12px; margin-bottom: 16px; border-radius: 8px;">
+        <div style="color: var(--muted); font-size: 12px;">生成时间: ${new Date().toLocaleString()}</div>
+      </div>
+      
+      <div style="margin-bottom: 24px;">
+        <h4 style="color: var(--ink); margin-bottom: 16px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">⚠️</span>需要改进的维度
+        </h4>
+        
+        <div style="background: rgba(245, 159, 11, 0.1); border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid rgba(245, 159, 11, 0.3);">
+          <h5 style="color: var(--warn); margin-bottom: 12px; display: flex; align-items: center;">
+            <span style="margin-right: 8px;">📊</span>团队14维需改进
+          </h5>
+          ${weaknesses14.length > 0 ? 
+            `<div style="display: grid; gap: 8px;">
+              ${weaknesses14.map(dim => {
+                const index = TEAM14.indexOf(dim);
+                const score = Math.round(team14Data[index]);
+                return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(245, 159, 11, 0.15); border-radius: 8px; border-left: 4px solid var(--warn);">
+                  <div>
+                    <div style="color: var(--ink); font-weight: bold; margin-bottom: 4px;">${dim}</div>
+                    <div style="color: var(--warn); font-size: 12px;">需要重点关注</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="color: var(--warn); font-size: 24px; font-weight: bold;">${score}</div>
+                    <div style="color: var(--muted); font-size: 12px;">分</div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>` : 
+            '<div style="text-align: center; padding: 20px; color: var(--muted);">各维度表现均衡，继续保持</div>'
+          }
+        </div>
+        
+        <div style="background: rgba(239, 68, 68, 0.1); border-radius: 12px; padding: 16px; border: 1px solid rgba(239, 68, 68, 0.3);">
+          <h5 style="color: var(--bad); margin-bottom: 12px; display: flex; align-items: center;">
+            <span style="margin-right: 8px;">🚀</span>团队潜力8维需改进
+          </h5>
+          ${weaknessesPot8.length > 0 ? 
+            `<div style="display: grid; gap: 8px;">
+              ${weaknessesPot8.map(dim => {
+                const index = TEAM_POT8_AXES.indexOf(dim);
+                const score = Math.round(teamPot8Data[index]);
+                return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(239, 68, 68, 0.15); border-radius: 8px; border-left: 4px solid var(--bad);">
+                  <div>
+                    <div style="color: var(--ink); font-weight: bold; margin-bottom: 4px;">${dim}</div>
+                    <div style="color: var(--bad); font-size: 12px;">潜力有待开发</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="color: var(--bad); font-size: 24px; font-weight: bold;">${score}</div>
+                    <div style="color: var(--muted); font-size: 12px;">分</div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>` : 
+            '<div style="text-align: center; padding: 20px; color: var(--muted);">各维度潜力表现均衡，继续保持</div>'
+          }
+        </div>
+      </div>
+      
+      <div style="background: rgba(42, 59, 122, 0.2); border-radius: 12px; padding: 16px;">
+        <h4 style="color: var(--ink); margin-bottom: 12px; display: flex; align-items: center;">
+          <span style="margin-right: 8px;">💡</span>具体改进建议
+        </h4>
+        <div style="color: var(--muted); line-height: 1.6;">
+          <div style="margin-bottom: 12px;">• 针对薄弱维度制定专项提升计划，设定明确的改进目标</div>
+          <div style="margin-bottom: 12px;">• 通过培训、实践和反馈提升相关能力，建立学习闭环</div>
+          <div style="margin-bottom: 12px;">• 建立定期评估和反馈机制，跟踪改进进度</div>
+          <div>• 鼓励团队成员互相学习和支持，形成协作改进氛围</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  analysisDiv.innerHTML = analysis;
+}
+
+function exportAnalysis() {
+  const content = document.getElementById('analysisContent').innerHTML;
+  const blob = new Blob([content], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `team_analysis_${new Date().toISOString().split('T')[0]}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function clearAnalysis() {
+  document.getElementById('analysisContent').innerHTML = '<p class="text-muted">点击上方按钮生成相应的分析内容...</p>';
+}
+
+// AI分析报告数据支持功能
+function generateAIData() {
+  const format = document.getElementById('aiDataFormat').value;
+  const scope = document.getElementById('aiDataScope').value;
+  const previewDiv = document.getElementById('aiDataPreview');
+  
+  const team14Data = currentBarData.mean14 || [];
+  const teamPot8Data = currentBarData.meanPot8 || [];
+  
+  let aiData;
+  
+  if (scope === 'complete') {
+    aiData = {
+      teamId: currentTeamId || 'mock_team',
+      timestamp: new Date().toISOString(),
+      team14Dimensions: TEAM14.map((dim, i) => ({
+        dimension: dim,
+        value: Math.round(team14Data[i] || 0),
+        type: AXIS_TYPE_TEAM[dim] || 'unknown'
+      })),
+      teamPot8Dimensions: TEAM_POT8_AXES.map((dim, i) => ({
+        dimension: dim,
+        value: Math.round(teamPot8Data[i] || 0)
+      })),
+      statistics: {
+        team14Average: Math.round(team14Data.reduce((sum, val) => sum + val, 0) / team14Data.length),
+        teamPot8Average: Math.round(teamPot8Data.reduce((sum, val) => sum + val, 0) / teamPot8Data.length),
+        team14Max: Math.max(...team14Data),
+        team14Min: Math.min(...team14Data),
+        teamPot8Max: Math.max(...teamPot8Data),
+        teamPot8Min: Math.min(...teamPot8Data)
+      }
+    };
+  } else if (scope === 'summary') {
+    aiData = {
+      teamId: currentTeamId || 'mock_team',
+      summary: {
+        team14Average: Math.round(team14Data.reduce((sum, val) => sum + val, 0) / team14Data.length),
+        teamPot8Average: Math.round(teamPot8Data.reduce((sum, val) => sum + val, 0) / teamPot8Data.length),
+        topStrengths: TEAM14.filter((dim, i) => team14Data[i] > 75).slice(0, 3),
+        improvementAreas: TEAM14.filter((dim, i) => team14Data[i] < 65).slice(0, 3)
+      }
+    };
+  } else {
+    aiData = {
+      keyMetrics: {
+        overallScore: Math.round((team14Data.reduce((sum, val) => sum + val, 0) + teamPot8Data.reduce((sum, val) => sum + val, 0)) / (team14Data.length + teamPot8Data.length)),
+        strengthCount: team14Data.filter(val => val > 75).length,
+        improvementCount: team14Data.filter(val => val < 65).length
+      }
+    };
+  }
+  
+  let formattedData;
+  if (format === 'json') {
+    formattedData = JSON.stringify(aiData, null, 2);
+  } else if (format === 'csv') {
+    if (scope === 'complete') {
+      formattedData = 'Dimension,Value,Type\n' + 
+        aiData.team14Dimensions.map(item => `${item.dimension},${item.value},${item.type}`).join('\n') + '\n' +
+        aiData.teamPot8Dimensions.map(item => `${item.dimension},${item.value},potential`).join('\n');
+    } else {
+      formattedData = Object.entries(aiData).map(([key, value]) => `${key},${JSON.stringify(value)}`).join('\n');
+    }
+  } else {
+    formattedData = `团队分析数据结构化文本\n\n`;
+    if (scope === 'complete') {
+      formattedData += `团队14维数据:\n${aiData.team14Dimensions.map(item => `- ${item.dimension}: ${item.value}分 (${item.type}类)`).join('\n')}\n\n`;
+      formattedData += `团队潜力8维数据:\n${aiData.teamPot8Dimensions.map(item => `- ${item.dimension}: ${item.value}分`).join('\n')}\n\n`;
+      formattedData += `统计信息:\n- 14维平均分: ${aiData.statistics.team14Average}\n- 潜力8维平均分: ${aiData.statistics.teamPot8Average}`;
+    } else {
+      formattedData += JSON.stringify(aiData, null, 2);
+    }
+  }
+  
+  previewDiv.innerHTML = `<pre>${formattedData}</pre>`;
+}
+
+function copyAIData() {
+  const previewDiv = document.getElementById('aiDataPreview');
+  const text = previewDiv.textContent || previewDiv.innerText;
+  
+  navigator.clipboard.writeText(text).then(() => {
+    alert('数据已复制到剪贴板');
+  }).catch(err => {
+    console.error('复制失败:', err);
+    alert('复制失败，请手动选择文本复制');
+  });
+}
+
+function downloadAIData() {
+  const format = document.getElementById('aiDataFormat').value;
+  const previewDiv = document.getElementById('aiDataPreview');
+  const text = previewDiv.textContent || previewDiv.innerText;
+  
+  const mimeTypes = {
+    'json': 'application/json',
+    'csv': 'text/csv',
+    'structured': 'text/plain'
+  };
+  
+  const extensions = {
+    'json': 'json',
+    'csv': 'csv',
+    'structured': 'txt'
+  };
+  
+  const blob = new Blob([text], { type: mimeTypes[format] });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ai_data_${new Date().toISOString().split('T')[0]}.${extensions[format]}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ====== 启动 ====== */
+function initIndustryOptionsOnce(){
+  const keys=Object.keys(INDUSTRY_TEAM_BASE);
+  industrySelect.innerHTML=keys.map(k=>`<option value="${k}">${k}</option>`).join('');
+  transIndustrySelect.innerHTML=keys.map(k=>`<option value="${k}">${k}</option>`).join('');
+  industrySelect.value=DATA.industry || 'SaaS/DevTools';
+  if(!transIndustrySelect.value) transIndustrySelect.value='品牌/设计/内容';
+}
+initIndustryOptionsOnce();
+renderAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Step4 - 基础14维度 百分制评分 + Big Five环境画像</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<script src="bf_mappings.js"></script>
+<script>
+
+// === Step4 Global Bridges (must come before any calls) ===
+// 全局垫片：先提供同名全局函数，内部转发到 window.* 或本地存储
+window.saveMeta       = window.saveMeta       || function(o){ setNS('step4_meta', o); };
+window.saveScores     = window.saveScores     || function(a){ setNS('step4_scores', a); };
+window.saveBFEnv      = window.saveBFEnv      || function(b){ setNS('step4_bf_env', b); };
+window.loadWeights    = window.loadWeights    || function(){ return getNS('step4_weights', null); };
+window.saveWeights    = window.saveWeights    || function(o){ setNS('step4_weights', o); };
+window.saveComposite  = window.saveComposite  || function(n){ setNS('step4_composite', n); };
+window.saveEcoHint    = window.saveEcoHint    || function(o){ setNS('step4_eco_hint', o); };
+window.renderWeightsAndComposite = window.renderWeightsAndComposite || function(){ /* no-op 等待真正实现挂载 */ };
+
+/* === 命名空间工具：提前定义，避免 TDZ === */
+function getNamespacedKey(baseKey){
+  const NS = (window.PSYS && PSYS.NS) || 'psys:v1';
+  const meta = JSON.parse(sessionStorage.getItem(`${NS}:currentSession`) || 'null');
+  return meta ? `${baseKey}:${meta.teamId}:${meta.userId}:${meta.runId}` : baseKey;
+}
+function getNS(k, fallback=null){
+  try {
+    const raw = localStorage.getItem(getNamespacedKey(k));
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+function setNS(k, v){
+  localStorage.setItem(getNamespacedKey(k), JSON.stringify(v));
+}
+/* 保留一个字符串常量（有些地方要读这个） */
+const NS_STR = (window.PSYS && PSYS.NS) || 'psys:v1';
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1020;--card:#121833;--ink:#e7ecff;--muted:#98a1c0;--line:#1c2447;--hl:#2a3b7a;--ok:#34d399;--warn:#f59b0a;--bad:#ff5c9a;--pri:#6c8cff}
+*{box-sizing:border-box}html,body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1430);color:var(--ink);font-family:'Noto Sans SC',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+.wrap{max-width:1200px;margin:20px auto 80px;padding:14px}
+.h1{font-size:24px;font-weight:700;margin:4px 0 10px}
+.card{background:linear-gradient(180deg,#121833,#0f1733);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:1024px){.row{grid-template-columns:1fr}}
+h3{margin:0 0 8px;font-size:16px}
+h4{margin:8px 0 6px;font-size:13px;color:#cdd6ff}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;margin:6px 0;font-size:12px;color:#dbe3ff}
+.small{font-size:12px;color:#a8b7ff}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #2a3b7a;border-radius:999px;background:#0c1433;color:#dbe3ff;font-size:12px;cursor:pointer;user-select:none}
+.chip.active{border-color:#7a95ff;background:rgba(108,140,255,.12)}
+.segment{display:inline-flex;border:1px solid #2a3b7a;border-radius:10px;overflow:hidden}
+.segment button{background:#0c1433;color:#cfe0ff;border:0;padding:6px 10px;cursor:pointer;font-size:12px}
+.segment button.active{background:#1a244f;color:#e7efff}
+.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid #2a3b7a;border-radius:999px;padding:2px 8px;font-size:11px;color:#cfe0ff}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:#7a95ff}
+.badge.ok{border-color:rgba(52,211,153,.6);color:#d8fff1}.badge.ok .dot{background:var(--ok)}
+.badge.warn{border-color:rgba(245,158,11,.6);color:#ffe4b8}.badge.warn .dot{background:var(--warn)}
+.badge.bad{border-color:rgba(255,92,154,.6);color:#ffd0e1}.badge.bad .dot{background:var(--bad)}
+.hr{height:1px;background:#243163;margin:10px 0;border:0}
+.btn{padding:8px 12px;border-radius:8px;background:var(--pri);border:1px solid #7a95ff;color:#fff;text-decoration:none;cursor:pointer}
+.btn.ghost{background:#0c1433;color:#cfe0ff;border-color:#3a4a8f}
+.flex{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.right{display:flex;gap:8px;align-items:center}
+.score{font-size:12px;color:#cfe0ff}
+.value{font-weight:700;color:#e7efff}
+.tip{font-size:12px;color:#a8b7ff;margin-top:4px}
+.table{width:100%;border-collapse:separate;border-spacing:0 6px;margin-top:8px}
+.table th,.table td{font-size:12px;color:#dbe3ff;text-align:left;padding:6px 8px;background:#0b1430;border:1px solid #283766}
+.table th{background:#0f1b3d;color:#e7efff}
+.note{font-size:12px;color:#9fb1ff}
+.select{background:#0c1433;border:1px solid #2a3b7a;border-radius:8px;color:#e7efff;padding:6px 10px;font-size:12px}
+.wtbl{width:100%;border-collapse:separate;border-spacing:0 6px}
+.wtbl th,.wtbl td{font-size:12px;color:#dbe3ff;text-align:left;padding:6px 8px;background:#0b1430;border:1px solid #283766}
+.wtbl th{background:#0f1b3d;color:#e7efff}
+.big{font-size:28px;font-weight:800;letter-spacing:0.5px}
+
+/* 进度指示条 */
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #1c2447;
+  border-radius: 3px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #34d399, #6c8cff);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* 维度类型颜色区分 */
+.dimension-card.core {
+  border-left: 4px solid #ff6b6b;
+  background: linear-gradient(180deg, #1a1333, #151233);
+}
+.dimension-card.foundation {
+  border-left: 4px solid #4ecdc4;
+  background: linear-gradient(180deg, #131a33, #0f1733);
+}
+
+/* 重要信息突出显示 */
+.highlight-box {
+  background: linear-gradient(135deg, rgba(108,140,255,0.1), rgba(52,211,153,0.1));
+  border: 1px solid rgba(108,140,255,0.3);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+.highlight-text {
+  color: #7a95ff;
+  font-weight: 600;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-indicator.excellent {
+  background: rgba(52,211,153,0.2);
+  color: #34d399;
+  border: 1px solid rgba(52,211,153,0.4);
+}
+.status-indicator.good {
+  background: rgba(245,158,11,0.2);
+  color: #f59b0a;
+  border: 1px solid rgba(245,158,11,0.4);
+}
+.status-indicator.needs-improvement {
+  background: rgba(255,92,154,0.2);
+  color: #ff5c9a;
+  border: 1px solid rgba(255,92,154,0.4);
+}
+
+/* 百分制滑块样式 */
+.score-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 10px 0;
+}
+
+.score-slider {
+  flex: 1;
+  height: 8px;
+  background: #1c2447;
+  border-radius: 4px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.score-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6c8cff, #34d399);
+  cursor: pointer;
+  border: 2px solid #0c1433;
+  box-shadow: 0 2px 8px rgba(108,140,255,0.4);
+  transition: all 0.2s ease;
+}
+
+.score-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(108,140,255,0.6);
+}
+
+.score-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6c8cff, #34d399);
+  cursor: pointer;
+  border: 2px solid #0c1433;
+  box-shadow: 0 2px 8px rgba(108,140,255,0.4);
+  transition: all 0.2s ease;
+}
+
+.score-slider::-moz-range-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(108,140,255,0.6);
+}
+
+.score-slider::-webkit-slider-track {
+  height: 8px;
+  background: linear-gradient(to right, 
+    #ff5c9a 0%, 
+    #ff5c9a 30%, 
+    #f59b0a 30%, 
+    #f59b0a 60%, 
+    #34d399 60%, 
+    #34d399 80%, 
+    #6c8cff 80%, 
+    #6c8cff 100%);
+  border-radius: 4px;
+}
+
+.score-slider::-moz-range-track {
+  height: 8px;
+  background: linear-gradient(to right, 
+    #ff5c9a 0%, 
+    #ff5c9a 30%, 
+    #f59b0a 30%, 
+    #f59b0a 60%, 
+    #34d399 60%, 
+    #34d399 80%, 
+    #6c8cff 80%, 
+    #6c8cff 100%);
+  border-radius: 4px;
+  border: none;
+}
+
+.score-display {
+  min-width: 60px;
+  text-align: center;
+  font-weight: 600;
+  color: #e7efff;
+  font-size: 16px;
+  background: #1c2447;
+  border: 1px solid #3a4a6b;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.score-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #8fa3d3;
+}
+
+.score-labels span {
+  flex: 1;
+  text-align: center;
+}
+
+/* 10分制评分按钮样式（保留作为备用） */
+.score-segment {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.score-segment button {
+  min-width: 32px;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid #3a4a6b;
+  background: #1c2447;
+  color: #8fa3d3;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.score-segment button:hover {
+  background: #2a3a5b;
+  border-color: #6c8cff;
+  color: #cfe0ff;
+}
+
+.score-segment button.active {
+  background: linear-gradient(135deg, #6c8cff, #34d399);
+  border-color: #6c8cff;
+  color: white;
+  box-shadow: 0 2px 8px rgba(108,140,255,0.3);
+}
+
+/* Big Five 预览样式 */
+.bf-preview-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.bf-dimension {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.bf-label {
+  width: 80px;
+  font-weight: 600;
+  color: #cfe0ff;
+  font-size: 14px;
+}
+
+.bf-bar {
+  flex: 1;
+  height: 20px;
+  background: #1c2447;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bf-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6c8cff, #34d399);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
+
+.bf-value {
+  width: 40px;
+  text-align: center;
+  font-weight: 600;
+  color: #e7efff;
+  font-size: 14px;
+}
+
+/* 动画效果 */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 工具提示样式 */
+.tooltip {
+  position: relative;
+  cursor: help;
+}
+.tooltip:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0f1b3d;
+  color: #cfe0ff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 1000;
+  border: 1px solid #2a3b7a;
+}
+</style>
+  <script src="./storage.js"></script>
+</head>
+<body>
+<div class="wrap">
+    <div class="flex" style="justify-content:space-between">
+      <div class="h1">Step4 · 基础14维度 10分制评分 + Big Five环境画像</div>
+      <div class="flex">
+        <button class="btn" id="btnRandomFill" style="background:#ff6b6b;border-color:#ff7979">随机填写所有维度</button>
+        <button class="btn" id="btnSaveHub">保存并返回 Hub</button>
+        <button class="btn" id="btnStep1">保存并前往 Step1</button>
+        <button class="btn" id="btnStep2">保存并前往 Step2</button>
+        <button class="btn" id="btnStep3">保存并前往 Step3</button>
+        <button class="btn" id="btnDashboard">保存并前往 Dashboard</button>
+        <button class="btn ghost" id="btnClear">清空选择</button>
+      </div>
+    </div>
+    
+    <!-- 进度指示条 -->
+    <div class="highlight-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span class="highlight-text">📊 评估进度</span>
+        <span id="progressText" class="small">0/14 维度已评估</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Big Five 预览面板 -->
+    <div class="highlight-box" style="margin: 20px 0;">
+      <h3>🧠 Big Five 环境画像预览</h3>
+      <div class="bf-preview-container">
+        <div class="bf-dimension">
+          <div class="bf-label">开放性 (O)</div>
+          <div class="bf-bar">
+            <div class="bf-fill" id="bf-fill-O"></div>
+          </div>
+          <div class="bf-value" id="bf-value-O">50</div>
+        </div>
+        <div class="bf-dimension">
+          <div class="bf-label">尽责性 (C)</div>
+          <div class="bf-bar">
+            <div class="bf-fill" id="bf-fill-C"></div>
+          </div>
+          <div class="bf-value" id="bf-value-C">50</div>
+        </div>
+        <div class="bf-dimension">
+          <div class="bf-label">外向性 (E)</div>
+          <div class="bf-bar">
+            <div class="bf-fill" id="bf-fill-E"></div>
+          </div>
+          <div class="bf-value" id="bf-value-E">50</div>
+        </div>
+        <div class="bf-dimension">
+          <div class="bf-label">宜人性 (A)</div>
+          <div class="bf-bar">
+            <div class="bf-fill" id="bf-fill-A"></div>
+          </div>
+          <div class="bf-value" id="bf-value-A">50</div>
+        </div>
+        <div class="bf-dimension">
+          <div class="bf-label">神经质 (N)</div>
+          <div class="bf-bar">
+            <div class="bf-fill" id="bf-fill-N"></div>
+          </div>
+          <div class="bf-value" id="bf-value-N">50</div>
+        </div>
+      </div>
+    </div>
+  <div class="note">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+      <div>
+        说明：本页不改变雷达与排版，仅用于补充 <b>思维 / 逻辑能力 / 熵增 / 洞察</b> + <b>10个更底层维度</b> 的标签判定与提示；并计算 <b>综合指数</b>（权重可一键切换预设）。<br/>
+        <b>频率说明：</b>从不=年度或更少（30分）；偶尔=每月1-2次（60分）；常态=每周都有（85分）<br/>
+        <b>方向说明：</b>偏少=需要增强（-10分）；适中=刚好合适（0分）；偏多=可能过度（-5分）<br/>
+        标签加分≤+15；熵增使用"噪声−护栏"的净效。
+      </div>
+    </div>
+    
+    <!-- 顶部：权重与综合指数 -->
+  <div class="card">
+    <div class="flex" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3>综合指数 & 权重预设</h3>
+        <div class="small">综合指数 = 加权平均 − 兜底惩罚；兜底维度：逻辑能力/洞察能力/注意力控制/工作带宽/熵增。</div>
+      </div>
+      <div class="flex">
+        <label class="small">权重预设：</label>
+        <select id="presetSel" class="select">
+          <option value="general">通用（默认）</option>
+          <option value="startup">创业 0→1</option>
+          <option value="scale">扩张 1→10</option>
+          <option value="research">研发/产品深思</option>
+          <option value="wellbeing">生活恢复/韧性</option>
+        </select>
+        <button class="btn ghost" id="btnWeightsReset">重置为预设</button>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+    <div class="flex" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
+      <div class="flex" style="gap:16px;align-items:center">
+        <div class="big" id="compVal">—</div>
+        <span class="badge" id="compBand"><i class="dot"></i>—</span>
+        <div class="small" id="penaltyText">兜底惩罚：—</div>
+      </div>
+      <div class="small">当前预设将保存在 <code>step4_weights</code>，综合指数存为 <code>step4_composite</code>。</div>
+    </div>
+
+    <table class="wtbl" id="wTable" style="margin-top:8px">
+      <thead><tr><th style="width:34px">#</th><th>维度</th><th style="width:120px">权重（%）</th><th style="width:90px">分数</th></tr></thead>
+      <tbody></tbody>
+      <tfoot><tr><td colspan="2" style="text-align:right"><b>合计</b></td><td id="wSum">100%</td><td id="weightedAvg">—</td></tr></tfoot>
+    </table>
+  </div>
+
+  <!-- 维度编辑区 -->
+  <div class="row" id="panel"></div>
+</div>
+
+<script>
+/* ========= 向量体检函数 ========= */
+function assertVec(name, v, len, min=0, max=100){
+  if(!Array.isArray(v) || v.length!==len) throw new Error(`${name} 长度应为 ${len}，实际 ${v&&v.length}`);
+  for(let i=0;i<v.length;i++){
+    const x = Number(v[i]);
+    if(!isFinite(x)) throw new Error(`${name}[${i}] 非数值: `+v[i]);
+    if(x<min || x>max) throw new Error(`${name}[${i}] 越界: ${x}（应在 ${min}~${max}）`);
+  }
+}
+
+/** ========= 基础数据 ========= */
+// Step4 14维到结构8维的映射权重（本质口径）
+const S4_TO_STRUCT8 = {
+  'insight': {'insight':0.6,'logic':0.4},        // 洞察能力 → 洞察+逻辑
+  'grit': {'wm':0.6,'grit':0.4},                 // 毅力 → 工作带宽+毅力
+  'rhythm': {'rhythm':0.7,'learning':0.3},       // 节奏 → 节奏+学习
+  'focus': {'focus':0.7,'emotion':0.3},          // 注意力 → 专注+情绪
+  'logic': {'logic':0.3,'venture':0.7},          // 逻辑 → 逻辑+冒险
+  'emotion': {'emotion':1.0},                    // 情绪稳定 → 情绪
+  'bridge': {'bridge':1.0},                     // 连接 → 桥梁
+  'venture': {'grit':1.0}                       // 冒险 → 毅力
+};
+
+// 14维key到结构8维索引的映射（基于用户提供的映射逻辑）
+const STEP4_TO_STRUCT8_MAPPING = {
+  'insight': [0, 1],      // 洞察能力 → insight(0) + logic(1)
+  'logic': [1, 7],        // 逻辑能力 → logic(1) + venture(7)  
+  'thinking': [0, 1],     // 思维 → insight(0) + logic(1)
+  'entropy': [5, 6],      // 熵增 → rhythm(5) + learning(6)
+  'focus': [2, 4],        // 注意力控制 → focus(2) + emotion(4)
+  'wm': [3, 2],          // 工作带宽 → wm(3) + focus(2)
+  'learn': [6, 5],       // 学习与迁移 → learning(6) + rhythm(5)
+  'affect': [4],         // 情绪调节 → emotion(4)
+  'boundary': [4, 7],    // 边界与主权 → emotion(4) + venture(7)
+  'uncertainty': [7, 6], // 不确定性承载 → venture(7) + learning(6)
+  'calibration': [1, 0], // 现实校准 → logic(1) + insight(0)
+  'habit': [5, 3],       // 习惯与自动化 → rhythm(5) + wm(3)
+  'social': [7, 4],      // 关系心智 → bridge(7) + emotion(4)
+  'meaning': [4, 7]      // 自我叙事与意义 → emotion(4) + venture(7)
+};
+
+// 14维度到Big Five的映射权重
+const DIMENSION_TO_BF_WEIGHTS = {
+  // 基础10维度
+  focus: { O: 0.1, C: 0.7, E: 0.0, A: 0.0, N: -0.3 },        // 专注力 -> 主要影响尽责性
+  wm: { O: 0.2, C: 0.6, E: 0.1, A: 0.0, N: -0.2 },           // 工作记忆 -> 主要影响尽责性
+  learn: { O: 0.8, C: 0.2, E: 0.1, A: 0.0, N: 0.0 },         // 学习迁移 -> 主要影响开放性
+  affect: { O: 0.0, C: 0.2, E: 0.0, A: 0.3, N: -0.8 },       // 情绪调节 -> 主要影响神经质(反向)
+  boundary: { O: 0.1, C: 0.3, E: -0.2, A: -0.1, N: -0.4 },   // 边界管理 -> 降低外向性和神经质
+  uncertainty: { O: 0.6, C: 0.0, E: 0.2, A: 0.0, N: -0.5 },  // 应对不确定 -> 开放性和降低神经质
+  calibration: { O: 0.3, C: 0.4, E: 0.0, A: 0.0, N: -0.3 },  // 现实感知 -> 开放性和尽责性
+  habit: { O: 0.0, C: 0.8, E: 0.0, A: 0.0, N: -0.2 },        // 习惯养成 -> 主要影响尽责性
+  social: { O: 0.1, C: 0.0, E: 0.6, A: 0.7, N: -0.1 },       // 人际理解 -> 外向性和宜人性
+  meaning: { O: 0.5, C: 0.1, E: 0.0, A: 0.2, N: -0.3 },      // 意义构建 -> 主要影响开放性
+  
+  // 核心4维度
+  thinking: { O: 0.7, C: 0.2, E: 0.0, A: 0.0, N: 0.0 },      // 思维方式 -> 主要影响开放性
+  logic: { O: 0.4, C: 0.6, E: 0.0, A: 0.0, N: -0.1 },        // 逻辑推理 -> 开放性和尽责性
+  entropy: { O: 0.2, C: 0.7, E: 0.1, A: 0.1, N: -0.4 },      // 混乱管理 -> 主要影响尽责性
+  insight: { O: 0.8, C: 0.1, E: 0.1, A: 0.0, N: 0.0 }        // 洞察发现 -> 主要影响开放性
+};
+
+/**
+ * 根据14维度评分计算Big Five（带权重归一化）
+ * @param {Object} scores - 14维度评分对象 {focus: 70, wm: 80, ...}
+ * @returns {Array} Big Five数组 [O, C, E, A, N]
+ */
+function computeBigFiveFromDimensions(scores) {
+  const bf = [50, 50, 50, 50, 50]; // 基准值
+  
+  // 权重归一化因子（基于权重总和分析）
+  const NORMALIZATION_FACTORS = {
+    O: 1.02,  // 开放性权重总和: 4.8
+    C: 1.00,  // 尽责性权重总和: 4.9 (最大，作为基准)
+    E: 3.50,  // 外向性权重总和: 1.4 (需要大幅增强)
+    A: 3.50,  // 宜人性权重总和: 1.4 (需要大幅增强)
+    N: 1.36   // 神经质权重总和: 3.6
+  };
+  
+  // 遍历每个维度的评分
+  Object.entries(scores).forEach(([dim, score]) => {
+    if (DIMENSION_TO_BF_WEIGHTS[dim] && typeof score === 'number') {
+      const weights = DIMENSION_TO_BF_WEIGHTS[dim];
+      const normalizedScore = (score - 50) / 50; // 将百分制分数转换为-1到1的范围
+      
+      // 应用归一化权重到Big Five各维度
+      bf[0] += weights.O * NORMALIZATION_FACTORS.O * normalizedScore * 25; // O: 开放性
+      bf[1] += weights.C * NORMALIZATION_FACTORS.C * normalizedScore * 25; // C: 尽责性  
+      bf[2] += weights.E * NORMALIZATION_FACTORS.E * normalizedScore * 25; // E: 外向性
+      bf[3] += weights.A * NORMALIZATION_FACTORS.A * normalizedScore * 25; // A: 宜人性
+      bf[4] += weights.N * NORMALIZATION_FACTORS.N * normalizedScore * 25; // N: 神经质
+    }
+  });
+  
+  // 确保结果在0-100范围内
+  return bf.map(v => Math.max(0, Math.min(100, Math.round(v))));
+}
+
+/**
+ * 更新Big Five预览显示
+ * @param {Array} bf - Big Five数组 [O, C, E, A, N]
+ */
+function updateBFPreview(bf) {
+  const labels = ['O', 'C', 'E', 'A', 'N'];
+  
+  labels.forEach((label, index) => {
+    const value = bf[index];
+    const fillElement = document.getElementById(`bf-fill-${label}`);
+    const valueElement = document.getElementById(`bf-value-${label}`);
+    
+    if (fillElement && valueElement) {
+      fillElement.style.width = `${value}%`;
+      valueElement.textContent = value;
+      
+      // 根据数值调整颜色
+      if (value >= 70) {
+        fillElement.style.background = 'linear-gradient(90deg, #2ecc71, #27ae60)';
+      } else if (value >= 30) {
+        fillElement.style.background = 'linear-gradient(90deg, #3498db, #2980b9)';
+      } else {
+        fillElement.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)';
+      }
+    }
+  });
+}
+
+/**
+ * 从Step4的14维度评分计算8维核心结构
+ * @param {Object} scores - 14维度评分对象 {focus: 70, wm: 80, ...}
+ * @returns {Array} 8维核心结构数组 [insight, logic, focus, wm, emotion, rhythm, learning, venture]
+ */
+function computeCoreStructFromStep4(scores) {
+  // 8维核心结构初始化为50分基准
+  const coreStruct = [50, 50, 50, 50, 50, 50, 50, 50];
+  
+  // 根据STEP4_TO_STRUCT8_MAPPING映射计算
+  Object.entries(STEP4_TO_STRUCT8_MAPPING).forEach(([step4Key, structIndices]) => {
+    const step4Score = scores[step4Key];
+    if (typeof step4Score === 'number') {
+      const contribution = (step4Score - 50) / structIndices.length; // 平均分配到对应的结构维度
+      
+      structIndices.forEach(structIndex => {
+        if (structIndex >= 0 && structIndex < 8) {
+          coreStruct[structIndex] += contribution;
+        }
+      });
+    }
+  });
+  
+  // 确保结果在0-100范围内并四舍五入
+  return coreStruct.map(v => Math.max(0, Math.min(100, Math.round(v))));
+}
+
+const ECO16 = [
+  "信任速度","协作质量","关系韧性","影响半径","目标推进力","节奏管理",
+  "应变效率","落地闭环度","洞察敏锐度","表达条理度","信息整合度","改进驱动力",
+  "能量外放","冲突风格","环境贴合度","幸福感基础"
+];
+const ECO_INDEX = {}; ECO16.forEach((n,i)=>ECO_INDEX[n]=i);
+
+// 14 维顺序（用于 step4_scores）
+const DIMENSIONS = [
+  // 10 个更底层维度
+  { key:"focus", name:"🎯 专注力",
+    desc:"在干扰环境中保持注意力，必要时切换任务状态。",
+    tags:[
+      "📱 能在干扰下保持专注",
+      "🔕 不容易被手机/消息打断", 
+      "🔄 切换任务后能很快进入状态",
+      "⏰ 专注时间能超过30分钟",
+      "👥 开会时能全程跟上",
+      "😴 做无聊任务也能坚持到结束"
+    ]
+  },
+  { key:"wm", name:"🧠 工作记忆",
+    desc:"同时处理多个信息和任务的心智缓存能力。",
+    tags:[
+      "🔀 同时处理多任务不容易崩溃",
+      "📋 任务多时还能保持清晰排序",
+      "⚠️ 工作过量时不会明显出错",
+      "🚫 能清楚拒绝或推迟额外任务",
+      "✅ 下班前能完成计划内任务",
+      "💪 长期高压下还能保持状态"
+    ]
+  },
+  { key:"learn", name:"📚 学习迁移",
+    desc:"从经验中学习，并将知识应用到新情况中。",
+    tags:[
+      "🔄 新知识能很快应用到实际工作",
+      "💡 遇到新问题能联想到旧经验",
+      "🌐 学到的技能能跨场景使用",
+      "🔍 喜欢探索不熟悉的主题",
+      "🧠 学过一次的内容记得牢",
+      "💬 总结后能用自己的话讲出来"
+    ]
+  },
+  { key:"affect", name:"😌 情绪调节",
+    desc:"觉察和管理自己的情绪状态，保持稳定表现。",
+    tags:[
+      "🫁 紧张时能用呼吸或动作放松自己",
+      "🔥 情绪高达不会失控发火",
+      "💬 面对批评能冷静回应",
+      "⏱️ 生气后能在一小时内恢复",
+      "🍎 能控制饮食与作息规律",
+      "🤗 感到焦虑时能找到安抚方式"
+    ]
+  },
+  { key:"boundary", name:"🛡️ 边界管理",
+    desc:"明确个人边界，在关系中维护自己的需求。",
+    tags:[
+      "❌ 能清楚说不而不愧疚",
+      "🎯 不会被他人轻易干扰决策",
+      "🚫 面对不合理要求能拒绝",
+      "🔒 维护隐私时很坚定",
+      "💪 在关系里坚持自己的底线",
+      "🙋 不会为了合群牺牲自我需求"
+    ]
+  },
+  { key:"uncertainty", name:"🌊 应对不确定",
+    desc:"在信息不完整的情况下仍能稳定行动。",
+    tags:[
+      "😌 面对未知不会过度焦虑",
+      "🎯 在模糊目标下还能行动",
+      "🏠 新环境中不会僵住",
+      "🚀 愿意尝试没做过的工作",
+      "✨ 接受没有完美答案",
+      "🔄 出现意外时能快速恢复心态"
+    ]
+  },
+  { key:"calibration", name:"🎯 现实感知",
+    desc:"准确判断情况，基于事实而非情绪做决定。",
+    tags:[
+      "🔍 能分辨想法与现实的差别",
+      "✅ 做决策前会先验证信息",
+      "🧠 不轻易被情绪左右判断",
+      "📰 听到负面消息会多方确认",
+      "📏 知道自己能力的边界",
+      "🔄 会根据反馈调整计划"
+    ]
+  },
+  { key:"habit", name:"🔄 习惯养成",
+    desc:"将重要行为变成自动化的日常习惯。",
+    tags:[
+      "🌅 有固定的早晚习惯",
+      "⚡ 做事不需要时时提醒",
+      "🤖 日常事务能自动完成",
+      "📅 时间管理工具能坚持使用",
+      "🏃 能保持规律的运动与饮食",
+      "🎯 不会因为小事频繁中断"
+    ]
+  },
+  { key:"social", name:"🤝 人际理解",
+    desc:"理解他人想法和感受，在团队中有效协作。",
+    tags:[
+      "👁️ 能站在他人角度理解想法",
+      "💝 对他人情绪很敏感",
+      "📝 能记住对方的重要小细节",
+      "👂 交流时能捕捉未说出口的意思",
+      "❤️ 愿意主动照顾别人感受",
+      "🤔 不容易长期误解他人动机",
+      "🎵 团队里能带动节奏与分工",
+      "🤝 出现冲突时能主动降级并修复"
+    ]
+  },
+  { key:"meaning", name:"✨ 意义构建",
+    desc:"为自己的经历和行动找到意义和价值。",
+    tags:[
+      "🎭 能讲清自己是谁、重视什么",
+      "🎯 经常思考人生目标",
+      "💎 有一套自己认可的价值观",
+      "📖 会把经历总结成故事",
+      "💪 面对挫折能找到意义",
+      "🎉 会把小成功当作动力"
+    ]
+  },
+
+  // 必备 4 维
+  { key:"thinking", name:"🧩 思维方式",
+    desc:"用不同角度和方法来分析和解决问题。",
+    tags:[
+      "💭 能跳出惯性思路看问题",
+      "🔀 能提出多个不同的解决方案",
+      "❓ 喜欢追问事情背后的为什么",
+      "📊 遇到问题能快速分类整理",
+      "🔍 善于发现模式与相似点",
+      "⚖️ 能在抽象与细节之间切换"
+    ]
+  },
+  { key:"logic", name:"🔗 逻辑推理",
+    desc:"用清晰的逻辑来分析问题和做决定。",
+    tags:[
+      "📝 能清楚解释自己的推理过程",
+      "🔍 能指出他人论点的漏洞",
+      "⚖️ 做决定前会权衡利弊",
+      "🛡️ 不容易被片面信息误导",
+      "✅ 推理过程能自圆其说",
+      "🧩 能把复杂问题拆成小步骤",
+      "📊 会给结论配上证据与边界条件",
+      "📈 能用图表或结构化表达支撑观点",
+      "⚠️ 能标注风险与不确定性"
+    ]
+  },
+  { key:"entropy", name:"⚡ 混乱管理",
+    desc:"在混乱环境中保持效率，建立有序的工作方式。",
+    tags:[
+      "🔄 需求频繁变更","❓ 接口人不清","📋 目标多版本","⚡ 临时插单","📅 排期漂移","📞 会议过载","🤝 跨部门拉扯","🔄 返工>30%",
+      "📄 文档失配","❌ 缺验收标准","🐛 Bug漏测","⚔️ 优先级打架","🔄 临时改向","📊 数据口径变动","👥 角色冲突","😤 情绪外溢",
+      "📋（护栏）标准化模板","👤（护栏）单一负责人","🔒（护栏）冻结窗","✅（护栏）变更评审",
+      "🚦（护栏）WIP限流","👁️（护栏）看板透明","🎯（护栏）里程碑准入","📝（护栏）复盘模板",
+      "🚨（护栏）异常告警","📋（护栏）SLA协议","📋（护栏）接口清单","🔄（护栏）灰度/回滚点"
+    ]
+  },
+  { key:"insight", name:"💡 洞察发现",
+    desc:"敏锐发现问题本质和相关趋势。",
+    tags:[
+      "🔍 能敏锐发现潜在问题",
+      "🔮 能预见趋势或结果",
+      "🎯 对他人说话能抓住重点",
+      "❓ 善于提出深层问题",
+      "⚡ 面对复杂情况能迅速抓住核心",
+      "✨ 直觉往往是对的并可被验证",
+      "📊 会设置领先指标并跟踪异常",
+      "🔬 能用对照样本或影子数据验证想法"
+    ]
+  }
+];
+
+// 分值口径（保持不变）
+const BASE_SCORE = { "从不":30, "偶尔":60, "常态":85 };
+const DIR_ADJ    = { "偏少":-10, "适中":0,  "偏多":-5 };
+const MAX_TAG_BONUS = 15; // 标签最多加 15 分
+
+/** ========= 权重预设 ========= */
+const K = DIMENSIONS.reduce((m,d)=>{ m[d.key]=d; return m; }, {});
+const PRESETS = {
+  general: { name:"通用",
+    w:{ logic:0.12, insight:0.12, entropy:0.10, wm:0.10, focus:0.10,
+        uncertainty:0.08, thinking:0.08, learn:0.07, habit:0.05,
+        boundary:0.05, social:0.05, affect:0.04, calibration:0.02, meaning:0.02 } },
+  startup: { name:"创业 0→1",
+    w:{ insight:0.14, logic:0.12, uncertainty:0.12, learn:0.10, entropy:0.10,
+        focus:0.08, wm:0.08, thinking:0.08, boundary:0.05, social:0.05,
+        habit:0.04, affect:0.02, calibration:0.01, meaning:0.01 } },
+  scale: { name:"扩张 1→10",
+    w:{ entropy:0.12, social:0.10, boundary:0.08, habit:0.08, wm:0.10,
+        focus:0.08, logic:0.10, insight:0.10, thinking:0.06, learn:0.06,
+        uncertainty:0.06, affect:0.04, calibration:0.01, meaning:0.01 } },
+  research: { name:"研发/产品深思",
+    w:{ logic:0.14, insight:0.14, wm:0.12, focus:0.10, thinking:0.10,
+        learn:0.08, entropy:0.08, uncertainty:0.06, calibration:0.06,
+        habit:0.04, boundary:0.03, social:0.03, affect:0.01, meaning:0.01 } },
+  wellbeing: { name:"生活恢复/韧性",
+    w:{ affect:0.14, meaning:0.10, habit:0.10, boundary:0.10, focus:0.10,
+        entropy:0.08, social:0.08, insight:0.06, logic:0.05, wm:0.05,
+        learn:0.05, thinking:0.04, uncertainty:0.03, calibration:0.02 } }
+};
+
+// 读取/保存（保持不变）
+function loadMeta(){ 
+  try{ 
+    return getNS('step4_meta', {});
+  } catch(e) { 
+    return {}; 
+  } 
+}
+
+
+// 计算维度分（保持不变）
+function computeDimScore(metaItem, totalTags){
+  const f = BASE_SCORE[metaItem.freq||'偶尔']||60;
+  const d = DIR_ADJ[metaItem.dir||'适中']||0;
+  const sel = (metaItem.tags||[]).length;
+  const bonus = totalTags>0 ? Math.min(MAX_TAG_BONUS, Math.round(MAX_TAG_BONUS * sel/totalTags)) : 0;
+  let score = Math.max(0, Math.min(100, f + d + bonus));
+  // 熵增特殊：把“噪声标签”当负项，“护栏标签”当正项
+  if(metaItem.key==='entropy'){
+    const noise  = (metaItem.tags||[]).filter(t=>!t.startsWith('（低熵护栏）')).length;
+    const guards = (metaItem.tags||[]).filter(t=>t.startsWith('（低熵护栏）')).length;
+    const raw = f + d + (guards - noise) * 2; // 每条 ±2 分
+    score = Math.max(0, Math.min(100, raw));
+  }
+  return score;
+}
+
+// 生态提示（保持不变）
+function buildEcoHints(scores){
+  const eco = new Array(16).fill(0);
+  DIMENSIONS.forEach((dim, idx)=>{
+    const s = scores[idx]??60;
+    const k = (s - 60) / 40; // -1..+1（60 为中线）
+    Object.entries(dim.ecoLinks||{}).forEach(([name,w])=>{
+      const i = ECO_INDEX[name]; if(i==null) return;
+      eco[i] += k * w * 8; // 每维度最高±8 * 权重
+    });
+  });
+  const entIdx = DIMENSIONS.findIndex(d=>d.key==='entropy');
+  if(entIdx>=0){
+    const s = scores[entIdx]??60;
+    const neg = Math.max(0, (60 - s)/40); // 0..1
+    eco[ECO_INDEX["节奏管理"]]   -= neg * 4;
+    eco[ECO_INDEX["落地闭环度"]] -= neg * 4;
+    eco[ECO_INDEX["协作质量"]]   -= neg * 3;
+  }
+  const out = {};
+  eco.forEach((v,i)=>{ if(Math.abs(v)>=0.5){ out[ECO16[i]] = Math.round(v*10)/10; } });
+  return out;
+}
+
+// 综合指数 + 兜底惩罚（保持不变）
+function calcComposite(scores, weights){
+  let sumW = 0; Object.values(weights).forEach(v=> sumW += (v||0));
+  const W = {}; Object.entries(weights).forEach(([k,v])=> W[k] = (sumW>0)? v/sumW : 0);
+  let avg = 0;
+  DIMENSIONS.forEach((d,idx)=>{ const s = scores[idx]??60; const w = W[d.key]||0; avg += s * w; });
+  const idxMap = {}; DIMENSIONS.forEach((d,i)=> idxMap[d.key]=i);
+  const baseKeys = ['logic','insight','focus','wm','entropy'];
+  const minBase = Math.min(...baseKeys.map(k=> scores[idxMap[k]]??60));
+  const penalty = (minBase<60) ? Math.min(10, (60 - minBase)*0.25) : 0;
+  const final = Math.round(avg - penalty);
+  return {avg:Math.round(avg), penalty:Math.round(penalty*10)/10, final, minBase};
+}
+
+/** ========= 渲染 ========= */
+function renderPanel(){
+  const meta = loadMeta();
+  const host = document.getElementById('panel');
+  
+  // 计算已评估维度数量
+  let evaluatedCount = 0;
+  
+  host.innerHTML = DIMENSIONS.map((dim, idx)=>{
+    const m = meta[dim.key] || {score: 50, tags:[]};
+    
+    // 检查是否已评估（评分不为50分或有标签选择）
+    if (m.score !== 50 || (m.tags && m.tags.length > 0)) {
+      evaluatedCount++;
+    }
+    
+    const chips = dim.tags.map(tag=>{
+      const on = (m.tags||[]).includes(tag) ? 'active' : '';
+      return `<span class="chip ${on}" data-key="${dim.key}" data-tag="${tag}" title="点击选择/取消（仅作参考，不影响分值）">${tag}</span>`;
+    }).join('');
+    
+    // 添加自定义标签
+    const customChips = (m.customTags||[]).map(tag=>{
+      const on = (m.tags||[]).includes(tag) ? 'active' : '';
+      return `<span class="chip ${on}" data-key="${dim.key}" data-tag="${tag}" data-custom="true" title="自定义标签 - 点击选择/取消（仅作参考，不影响分值）">${tag} <span onclick="event.stopPropagation(); removeCustomTag('${dim.key}', '${tag}');" style="margin-left: 4px; cursor: pointer; color: #ff5c9a;">×</span></span>`;
+    }).join('');
+    
+    const allChips = chips + (customChips ? ' ' + customChips : '');
+    
+    const score = m.score || 50;
+    const band = score>=80?'ok':(score<60?'bad':'warn');
+    const bandText = score>=80?'强':(score<60?'风险':'可用');
+    
+    // 百分制滑块（0-100，每1分一个单位）
+    const sliderHtml = `
+      <div class="score-slider-container">
+        <input type="range" 
+               class="score-slider" 
+               min="0" 
+               max="100" 
+               step="1" 
+               value="${score}" 
+               data-key="${dim.key}"
+               oninput="updateScoreFromSlider(this)"
+               onchange="updateScoreFromSlider(this)">
+        <div class="score-display" id="score-display-${dim.key}">${score}</div>
+      </div>
+      <div class="score-labels">
+        <span>风险区 (0-59)</span>
+        <span>可用区 (60-79)</span>
+        <span>优秀区 (80-100)</span>
+      </div>
+    `;
+    
+    // 获取状态指示器
+    let statusClass = 'needs-improvement';
+    let statusText = '需要改进';
+    if (score >= 80) {
+      statusClass = 'excellent';
+      statusText = '表现优秀';
+    } else if (score >= 60) {
+      statusClass = 'good';
+      statusText = '表现良好';
+    }
+    
+    // 确定维度类型（前10个为基础维度，后4个为核心维度）
+    const dimensionType = idx < 10 ? 'foundation' : 'core';
+
+    return `<div class="card dimension-card ${dimensionType} fade-in" id="card-${dim.key}">
+      <div class="flex" style="justify-content:space-between">
+        <h3>${idx+1}. ${dim.name} <span class="status-indicator ${statusClass}">${statusText}</span></h3>
+        <div class="right">
+          <span class="badge ${band}"><i class="dot"></i>评分 <span class="value">${score}</span>/100（${bandText}）</span>
+        </div>
+      </div>
+      <div class="small">${dim.desc||''}</div>
+      <div class="kv">
+          <div>评分（0-100分）</div><div class="slider-container" data-scope="${dim.key}">${sliderHtml}</div>
+        </div>
+      <h4>标签（仅作参考，不影响分值）</h4>
+      <div class="chips" data-scope="${dim.key}">${allChips}</div>
+      <div style="margin-top: 8px;">
+        <input type="text" id="customTag-${dim.key}" placeholder="添加自定义标签..." 
+               style="background: #0c1433; border: 1px solid #2a3b7a; border-radius: 6px; color: #e7efff; padding: 4px 8px; font-size: 12px; width: 200px; margin-right: 8px;">
+        <button class="btn ghost" onclick="addCustomTag('${dim.key}')" style="font-size: 12px; padding: 4px 8px;">添加</button>
+      </div>
+    </div>`;
+  }).join('');
+  
+  // 更新进度条
+  updateProgress(evaluatedCount);
+  
+  // 计算并更新Big Five预览
+  const scores = {};
+  DIMENSIONS.forEach(d => { scores[d.key] = meta[d.key]?.score ?? 50; });
+  const bfScores = computeBigFiveFromDimensions(scores);
+  updateBFPreview(bfScores);
+}
+
+function renderEcoSummary(scores){
+  const hints = buildEcoHints(scores);
+  const tbody = document.querySelector('#ecoHintsTable tbody');
+  
+  // 检查表格是否存在，如果不存在则跳过
+  if (!tbody) {
+    console.warn('ecoHintsTable not found, skipping eco summary rendering');
+    return;
+  }
+  
+  const rows = Object.keys(hints).sort().map(name=>{
+    const v = hints[name];
+    const cls = v>=0? 'ok':'bad';
+    return `<tr><td>${name}</td><td><span class="badge ${cls}"><i class="dot"></i>Δ ${v>0?'+':''}${v}</span> 仅为方向性提示（不改变分数）</td></tr>`;
+  });
+  tbody.innerHTML = rows.length? rows.join('') : `<tr><td colspan="2" class="small">暂无（选择一些标签或调整频率/方向后会生成提示）</td></tr>`;
+  window.saveEcoHint(hints);
+}
+
+
+
+function collectStep4Payload(){
+  const meta = loadMeta();
+  let scores = [];
+  let ecoHint = {};
+  try{ scores = JSON.parse(localStorage.getItem('step4_scores')||'[]') || []; }catch(e){ scores = []; }
+  try{ ecoHint = JSON.parse(localStorage.getItem('step4_eco_hint')||'{}') || {}; }catch(e){ ecoHint = {}; }
+  let weights = window.loadWeights();
+  if(!weights){
+    weights = { preset:'general', weights:{...PRESETS.general.w} };
+  }
+  const compositeRaw = localStorage.getItem('step4_composite');
+  const composite = compositeRaw!=null && compositeRaw!=='' ? Number(compositeRaw) : null;
+  
+  // 收集自定义标签数据
+  const customTagsData = {};
+  DIMENSIONS.forEach(dim => {
+    const dimMeta = meta[dim.key];
+    if (dimMeta && dimMeta.customTags && dimMeta.customTags.length > 0) {
+      customTagsData[dim.key] = dimMeta.customTags;
+    }
+  });
+  
+  return { meta, scores, ecoHint, weights, composite, customTags: customTagsData };
+}
+
+function handleSaveStep4(next){
+  window.handleSaveStep4 = handleSaveStep4;
+  window.renderWeightsAndComposite();
+  const payload = collectStep4Payload();
+  
+  // 计算Big Five环境画像并保存
+  const scores = {};
+  DIMENSIONS.forEach(d => {
+    const meta = loadMeta();
+    scores[d.key] = meta[d.key]?.score || 50; // 使用百分制默认值50
+  });
+  const bfEnv = computeBigFiveFromDimensions(scores);
+  window.saveBFEnv(bfEnv);
+  
+  // 计算8维核心结构 (step4_core_struct)
+  const coreStruct = computeCoreStructFromStep4(scores);
+  setNS('step4_core_struct', coreStruct);
+  
+  // Step4保存后断言校验
+  try{
+    const bf = getNS('step4_bf_env', []);
+    assertVec('step4_bf_env', bf, 5);
+    assertVec('step4_core_struct', coreStruct, 8);
+  }catch(e){ 
+    alert('Step4 Big Five环境画像或核心结构校验失败：'+e.message); 
+    throw e; 
+  }
+  
+  alert('Step4 已保存到本地：step4_meta / step4_scores / step4_bf_env / step4_core_struct');
+  try{
+    if(window.PSYS){
+      PSYS.saveStep('step4', { ...payload, bfEnv, coreStruct, savedAt: new Date().toISOString() });
+      console.log('[Step4] saved with bfEnv:', bfEnv, 'coreStruct:', coreStruct);
+    }
+  }catch(err){ console.warn('PSYS.saveStep step4 failed', err); }
+  if(next){ location.href = next; }
+}
+
+/** ========= 滑块评分更新函数 ========= */
+function updateScoreFromSlider(slider) {
+  const key = slider.getAttribute('data-key');
+  const score = parseInt(slider.value);
+  
+  // 更新显示
+  const display = document.getElementById(`score-display-${key}`);
+  if (display) {
+    display.textContent = score;
+  }
+  
+  // 更新数据
+  const meta = loadMeta();
+  const m = meta[key] || {score: 50, tags:[]};
+  m.score = score;
+  meta[key] = m;
+  window.saveMeta(meta);
+  
+  // 重新渲染面板和权重
+  renderPanel();
+  window.renderWeightsAndComposite();
+}
+
+// 将函数暴露到全局作用域
+window.updateScoreFromSlider = updateScoreFromSlider;
+
+/** ========= 事件 ========= */
+function bindEvents(){
+  const panel = document.getElementById('panel');
+  panel.addEventListener('click', (e)=>{
+    const chip = e.target.closest('.chip');
+    if(chip){
+      const key = chip.getAttribute('data-key'), tag = chip.getAttribute('data-tag');
+      const meta = loadMeta(); const m = meta[key] || {score: 5, tags:[]};
+      const i = m.tags.indexOf(tag);
+      if(i>=0) m.tags.splice(i,1); else m.tags.push(tag);
+      meta[key] = m; window.saveMeta(meta);
+      renderPanel(); window.renderWeightsAndComposite();
+      return;
+    }
+    const btn = e.target.closest('button[data-type]');
+    if(btn){
+      const key = btn.getAttribute('data-key'); const type = btn.getAttribute('data-type'); const val = btn.getAttribute('data-val');
+      const meta = loadMeta(); const m = meta[key] || {score: 5, tags:[]};
+      if(type === 'score') {
+        m.score = parseInt(val);
+      }
+      meta[key] = m; window.saveMeta(meta);
+      renderPanel(); window.renderWeightsAndComposite();
+      return;
+    }
+  });
+
+  document.getElementById('btnSaveHub').addEventListener('click', ()=> handleSaveStep4('hub.html'));
+  document.getElementById('btnStep1').addEventListener('click', ()=> handleSaveStep4('step1_linked.html'));
+  document.getElementById('btnStep2').addEventListener('click', ()=> handleSaveStep4('step2_linked.html'));
+  
+  // 随机填写所有维度按钮事件
+  document.getElementById('btnRandomFill').addEventListener('click', ()=> {
+    const meta = loadMeta();
+    
+    // 为每个维度随机生成50-90分的分数
+    DIMENSIONS.forEach(dim => {
+      const randomScore = Math.floor(Math.random() * 41) + 50; // 50-90随机分数
+      const m = meta[dim.key] || {score: 50, tags:[]};
+      m.score = randomScore;
+      meta[dim.key] = m;
+      
+      // 更新滑块显示
+      const slider = document.querySelector(`input[data-key="${dim.key}"]`);
+      if (slider) {
+        slider.value = randomScore;
+      }
+      
+      // 更新分数显示
+      const display = document.getElementById(`score-display-${dim.key}`);
+      if (display) {
+        display.textContent = randomScore;
+      }
+    });
+    
+    // 保存数据
+    window.saveMeta(meta);
+    
+    // 重新渲染面板和权重
+    renderPanel();
+    window.renderWeightsAndComposite();
+  });
+  document.getElementById('btnStep3').addEventListener('click', ()=> handleSaveStep4('step3_linked.html'));
+  document.getElementById('btnDashboard').addEventListener('click', ()=> handleSaveStep4('dashboard_linked.html'));
+
+  document.getElementById('btnClear').addEventListener('click', ()=>{
+    if(!confirm('确定清空 Step4 的全部选择和指数？')) return;
+    localStorage.removeItem(getNamespacedKey('step4_meta'));
+    localStorage.removeItem(getNamespacedKey('step4_scores'));
+    localStorage.removeItem(getNamespacedKey('step4_eco_hint'));
+    localStorage.removeItem(getNamespacedKey('step4_composite'));
+    renderPanel(); window.renderWeightsAndComposite();
+  });
+
+  document.getElementById('presetSel').addEventListener('change', (e)=>{
+    const val = e.target.value || 'general';
+    const preset = PRESETS[val] || PRESETS.general;
+    const conf = { preset: val, weights: {...preset.w} };
+    window.saveWeights(conf);
+    window.renderWeightsAndComposite();
+  });
+
+  document.getElementById('btnWeightsReset').addEventListener('click', ()=>{
+    const sel = document.getElementById('presetSel');
+    const val = sel.value || 'general';
+    const preset = PRESETS[val] || PRESETS.general;
+    const conf = { preset: val, weights: {...preset.w} };
+    window.saveWeights(conf);
+    window.renderWeightsAndComposite();
+  });
+}
+
+
+
+// 工具提示函数
+function getFreqTooltip(freq) {
+  const tooltips = {
+    "从不": "年度或更少：这个能力很少用到或几乎不具备（30分）",
+    "偶尔": "每月1-2次：偶尔会用到或表现出来（60分）", 
+    "常态": "每周都有：经常使用或表现稳定（85分）"
+  };
+  return tooltips[freq] || "";
+}
+
+function getDirTooltip(dir) {
+  const tooltips = {
+    "偏少": "需要增强：这方面还有提升空间（-10分）",
+    "适中": "刚好合适：当前水平比较理想（0分）",
+    "偏多": "可能过度：这方面可能有些过头了（-5分）"
+  };
+  return tooltips[dir] || "";
+}
+
+// 更新进度条函数
+function updateProgress(evaluatedCount) {
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  
+  if (progressFill && progressText) {
+    const percentage = Math.round((evaluatedCount / 14) * 100);
+    progressFill.style.width = percentage + '%';
+    progressText.textContent = `${evaluatedCount}/14 维度已评估`;
+  }
+}
+
+
+
+// 添加自定义标签功能
+function addCustomTag(dimensionKey) {
+  const input = document.getElementById(`customTag-${dimensionKey}`);
+  const tagText = input.value.trim();
+  
+  if (!tagText) {
+    alert('请输入标签内容');
+    return;
+  }
+  
+  const meta = loadMeta();
+  const m = meta[dimensionKey] || { score: 50, tags: [], customTags: [] };
+  
+  // 检查是否已存在（包括预设标签和自定义标签）
+  const dimension = DIMENSIONS.find(d => d.key === dimensionKey);
+  const allExistingTags = [...(dimension?.tags || []), ...(m.customTags || [])];
+  
+  if (allExistingTags.includes(tagText)) {
+    alert('该标签已存在');
+    return;
+  }
+  
+  // 添加到自定义标签列表
+  if (!m.customTags) m.customTags = [];
+  m.customTags.push(tagText);
+  
+  // 自动选择新添加的标签
+  if (!m.tags) m.tags = [];
+  m.tags.push(tagText);
+  
+  meta[dimensionKey] = m;
+  window.saveMeta(meta);
+  
+  // 清空输入框
+  input.value = '';
+  
+  // 重新渲染
+  renderPanel();
+  window.renderWeightsAndComposite();
+}
+
+// 删除自定义标签功能
+function removeCustomTag(dimensionKey, tagText) {
+  const meta = loadMeta();
+  const m = meta[dimensionKey] || { score: 50, tags: [], customTags: [] };
+  
+  // 从自定义标签列表中删除
+  if (m.customTags) {
+    const index = m.customTags.indexOf(tagText);
+    if (index > -1) {
+      m.customTags.splice(index, 1);
+    }
+  }
+  
+  // 从选中标签列表中删除
+  if (m.tags) {
+    const index = m.tags.indexOf(tagText);
+    if (index > -1) {
+      m.tags.splice(index, 1);
+    }
+  }
+  
+  meta[dimensionKey] = m;
+  window.saveMeta(meta);
+  
+  // 重新渲染
+  renderPanel();
+  window.renderWeightsAndComposite();
+}
+
+// 支持回车键添加标签
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && e.target.id && e.target.id.startsWith('customTag-')) {
+    const dimensionKey = e.target.id.replace('customTag-', '');
+    addCustomTag(dimensionKey);
+  }
+});
+</script>
+
+<script>
+(function(){
+  const NS='psys:v1';
+  
+  function qs(k){
+    const u=new URL(location.href);
+    return u.searchParams.get(k);
+  }
+  function setMetaFromUrl(){
+    const teamId=qs('teamId'), userId=qs('userId'), runId=qs('runId');
+    if(teamId && userId && runId){
+      sessionStorage.setItem(`${NS}:currentSession`, JSON.stringify({teamId,userId,runId}));
+      return true;
+    }
+    return false;
+  }
+  function getMeta(){
+    try{
+      const raw=sessionStorage.getItem(`${NS}:currentSession`);
+      return raw?JSON.parse(raw):null;
+    }catch{ return null; }
+  }
+  setMetaFromUrl();
+  const meta=getMeta();
+  
+  // 将所有调用 setNS/getNS 的函数移到 IIFE 内部
+  function saveMeta(obj){ setNS('step4_meta', obj); }
+  function saveScores(arr){ setNS('step4_scores', arr); }
+  function saveBFEnv(bf){ setNS('step4_bf_env', bf); }
+  function loadWeights(){ try{ return getNS('step4_weights', null); }catch(e){ return null; } }
+  function saveWeights(obj){ setNS('step4_weights', obj); }
+  function saveComposite(num){ setNS('step4_composite', num); }
+  function saveEcoHint(obj){ setNS('step4_eco_hint', obj); }
+
+// === Expose Step4 helpers globally ===
+try {
+  window.saveMeta = saveMeta;
+  window.saveScores = saveScores;
+  window.saveBFEnv = saveBFEnv;
+  window.saveEcoHint = saveEcoHint;
+  window.saveWeights = saveWeights;
+  window.saveComposite = saveComposite;
+  window.renderWeightsAndComposite = renderWeightsAndComposite;
+  window.loadWeights = loadWeights;
+} catch (e) { /* noop */ }
+
+  
+  
+
+// === expose step4 helpers to global to avoid scope issues ===
+window.saveMeta = saveMeta;
+window.saveScores = saveScores;
+window.saveBFEnv = saveBFEnv;
+window.saveEcoHint = saveEcoHint;
+window.saveWeights = saveWeights;
+window.saveComposite = saveComposite;
+window.renderWeightsAndComposite = renderWeightsAndComposite;
+window.loadWeights = loadWeights;
+
+// 将所有调用这些函数的函数也移到 IIFE 内部
+  function renderWeightsAndComposite(){
+    const meta = loadMeta();
+    const scores = DIMENSIONS.map((d)=> computeDimScore({...meta[d.key], key:d.key}, d.tags.length));
+    window.saveScores(scores);
+
+    let wconf = window.loadWeights();
+    if(!wconf){
+      wconf = { preset:'general', weights: {...PRESETS.general.w} };
+      window.saveWeights(wconf);
+    }
+
+    const res = calcComposite(scores, wconf.weights);
+    window.saveComposite(res.final);
+
+    const $comp = document.getElementById('compVal');
+    const $band = document.getElementById('compBand');
+    const $pen  = document.getElementById('penaltyText');
+    $comp.textContent = isNaN(res.final)? '—' : res.final;
+    let bandCls='warn', bandTxt='可用';
+    if(res.final>=75){ bandCls='ok'; bandTxt='强'; }
+    if(res.final<60){ bandCls='bad'; bandTxt='风险'; }
+    $band.className = `badge ${bandCls}`;
+    $band.innerHTML = `<i class="dot"></i>${bandTxt}`;
+    $pen.textContent = `兜底惩罚：${res.penalty}（地基最小值 ${res.minBase}）`;
+
+    const tbody = document.querySelector('#wTable tbody');
+    let sumW = 0; DIMENSIONS.forEach(d=> sumW += (wconf.weights[d.key]||0));
+    const rows = DIMENSIONS.map((d,idx)=>{
+      const w = wconf.weights[d.key]||0;
+      const wPct = (sumW>0)? Math.round(w/sumW*1000)/10 : 0;
+      return `<tr><td>${idx+1}</td><td>${d.name.split('（')[0]}</td><td>${wPct}%</td><td>${scores[idx]}</td></tr>`;
+    });
+    tbody.innerHTML = rows.join('');
+    document.getElementById('wSum').textContent = Math.round(sumW*100)/100 + '%';
+    document.getElementById('weightedAvg').textContent = res.avg;
+
+    const sel = document.getElementById('presetSel');
+    sel.value = wconf.preset || 'general';
+
+    renderEcoSummary(scores);
+  }
+  
+  // 将 init 函数也移到 IIFE 内部
+  function init(){
+    if(!window.loadWeights()){
+      window.saveWeights({ preset:'general', weights:{...PRESETS.general.w} });
+    }
+    renderPanel();
+    window.renderWeightsAndComposite();
+    bindEvents();
+  }
+  
+  // 将 hydrateStep4 函数移到 IIFE 内部
+  function hydrateStep4(meta){
+    if(!meta || !window.PSYS){
+      renderPanel();
+      window.renderWeightsAndComposite();
+      return;
+    }
+    try{
+      const sess = PSYS.getSession(meta.teamId, meta.userId, meta.runId);
+      const saved = sess?.step4;
+      if(saved){
+        if(saved.meta){ window.saveMeta(saved.meta); }
+        if(Array.isArray(saved.scores)){ window.saveScores(saved.scores); }
+        if(saved.ecoHint){ window.saveEcoHint(saved.ecoHint); }
+        if(saved.weights){ window.saveWeights(saved.weights); }
+        if(saved.composite!=null){ window.saveComposite(saved.composite); }
+      } else {
+        localStorage.removeItem(getNamespacedKey('step4_meta'));
+        localStorage.removeItem(getNamespacedKey('step4_scores'));
+        localStorage.removeItem(getNamespacedKey('step4_eco_hint'));
+        localStorage.removeItem(getNamespacedKey('step4_composite'));
+        localStorage.removeItem(getNamespacedKey('step4_weights'));
+      }
+    }catch(err){ console.warn('hydrate step4 failed', err); }
+    renderPanel();
+    window.renderWeightsAndComposite();
+  }
+  
+  // 调用初始化函数
+  init();
+  
+  if(!meta){
+    // 无会话时允许本地模式，不强制跳转
+    console.warn('No current session; running in LOCAL mode');
+    hydrateStep4(null); // 本地模式
+    // 显示本地模式角标
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#8b4513;border:1px solid #a0522d;color:#fff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='本地模式 · 未关联团队';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  } else {
+    hydrateStep4(meta);
+    // mount a small corner badge
+    const div=document.createElement('div');
+    div.style.cssText='position:fixed;top:8px;left:8px;background:#0e1633;border:1px solid #1c2447;color:#e7ecff;padding:6px 10px;border-radius:10px;font-size:12px;z-index:99999;opacity:.9';
+    div.textContent='团队/成员已关联 · 安全会话';
+    document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(div));
+  }
+
+  // Provide manual hooks
+  window.psysMarkStepCompleted = function(partName){
+    if(!window.PSYS){ console.warn('PSYS not loaded'); return; }
+    PSYS.saveStep(partName, {manual:true, savedAt: new Date().toISOString()});
+  };
+})();
+</script>
+
+</body>
+</html>
